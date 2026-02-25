@@ -1055,6 +1055,11 @@ async def _webhook_queue_worker():
             # Wait if processing is already running (e.g. cron or manual run)
             while processing_state["is_processing"]:
                 await asyncio.sleep(2)
+
+            # Delay to let Plex finish metadata matching (GUIDs aren't available immediately)
+            logger.info(f"Webhook queue: waiting 15s for Plex to populate metadata for {item_title}")
+            await asyncio.sleep(15)
+
             # Load current badge settings so webhook uses same styling as the UI
             settings = _load_settings()
             badge_style = settings.get("badge_style")
@@ -1244,8 +1249,11 @@ async def plex_webhook(request: FastAPIRequest):
 
         if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
             form = await request.form()
-            raw = form.get("payload", "{}")
-            data = json.loads(raw)
+            raw_payload = form.get("payload", "{}")
+            # Plex sends payload as an UploadFile in multipart; read its bytes
+            if hasattr(raw_payload, 'read'):
+                raw_payload = (await raw_payload.read()).decode('utf-8')
+            data = json.loads(raw_payload)
         else:
             body = await request.body()
             data = json.loads(body) if body else {}
