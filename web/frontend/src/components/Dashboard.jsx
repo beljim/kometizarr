@@ -351,13 +351,21 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
           count: 3,
         }),
       })
+      const contentType = res.headers.get('content-type') || ''
+      if (!res.ok) {
+        throw new Error(`Preview request failed (${res.status})`)
+      }
+      if (!contentType.includes('application/json')) {
+        throw new Error('Preview response was not JSON (likely proxy timeout page)')
+      }
+
       const data = await res.json()
       setPreviewResults(data.previews || [])
       setPreviewDebug(data.debug || null)
     } catch (error) {
       console.error('Preview failed:', error)
       setPreviewResults([])
-      setPreviewDebug(null)
+      setPreviewDebug({ error: error.message })
     } finally {
       setPreviewLoading(false)
     }
@@ -920,7 +928,9 @@ function PreviewModal({ results, debug, loading, onClose }) {
             <div>No results — library may have no rated items with matching sources.</div>
             {debug && (
               <div className="text-xs text-gray-500">
-                sampled={debug.sampled}/{debug.total_items} · no_ids={debug.skipped_no_ids} · no_ratings={debug.skipped_no_ratings} · no_poster={debug.skipped_no_poster} · download_failed={debug.skipped_download_failed} · render_failed={debug.skipped_render_failed}
+                {debug.error
+                  ? `error=${debug.error}`
+                  : `sampled=${debug.sampled}/${debug.total_items} · no_ids=${debug.skipped_no_ids} · no_ratings=${debug.skipped_no_ratings} · no_poster=${debug.skipped_no_poster} · download_failed=${debug.skipped_download_failed} · render_failed=${debug.skipped_render_failed}`}
               </div>
             )}
           </div>

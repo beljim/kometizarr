@@ -502,6 +502,7 @@ async def preview_posters(request: PreviewRequest):
     import base64
     import requests as req
     from pathlib import Path
+    import time
 
     try:
         manager = PlexPosterManager(
@@ -518,8 +519,11 @@ async def preview_posters(request: PreviewRequest):
         )
 
         all_items = manager.library.all()
-        sample = list(all_items)
+        candidate_count = min(len(all_items), max(request.count * 20, 120))
+        sample = random.sample(all_items, candidate_count) if len(all_items) > candidate_count else list(all_items)
         random.shuffle(sample)
+        started = time.monotonic()
+        max_runtime_seconds = 20
 
         debug = {
             'total_items': len(all_items),
@@ -535,6 +539,10 @@ async def preview_posters(request: PreviewRequest):
         results = []
         for item in sample:
             if len(results) >= request.count:
+                break
+
+            if (time.monotonic() - started) > max_runtime_seconds:
+                logger.warning(f"Preview timeout budget reached for {request.library_name} after {debug['sampled']} items")
                 break
 
             debug['sampled'] += 1

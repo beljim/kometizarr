@@ -15,6 +15,7 @@ class RatingFetcher:
     TMDB_BASE_URL = "https://api.themoviedb.org/3"
     OMDB_BASE_URL = "http://www.omdbapi.com/"
     MDBLIST_BASE_URL = "https://mdblist.com/api"
+    REQUEST_TIMEOUT = 8
 
     def __init__(self, tmdb_api_key: str, omdb_api_key: Optional[str] = None, mdblist_api_key: Optional[str] = None):
         """
@@ -44,7 +45,7 @@ class RatingFetcher:
         url = f"{self.TMDB_BASE_URL}/{endpoint}?api_key={self.tmdb_api_key}"
 
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=self.REQUEST_TIMEOUT)
             response.raise_for_status()
             data = response.json()
 
@@ -80,7 +81,7 @@ class RatingFetcher:
         url = f"{self.TMDB_BASE_URL}/tv/{tmdb_id}/season/{season}/episode/{episode}?api_key={self.tmdb_api_key}"
 
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=self.REQUEST_TIMEOUT)
             response.raise_for_status()
             data = response.json()
 
@@ -111,7 +112,7 @@ class RatingFetcher:
         url = f"{self.OMDB_BASE_URL}?i={imdb_id}&apikey={self.omdb_api_key}"
 
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=self.REQUEST_TIMEOUT)
             response.raise_for_status()
             data = response.json()
 
@@ -155,7 +156,7 @@ class RatingFetcher:
         url = f"{self.MDBLIST_BASE_URL}/?apikey={self.mdblist_api_key}&i={imdb_id}"
 
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=self.REQUEST_TIMEOUT)
             response.raise_for_status()
             data = response.json()
 
@@ -187,7 +188,7 @@ class RatingFetcher:
         url = f"{self.TMDB_BASE_URL}/find/{imdb_id}?api_key={self.tmdb_api_key}&external_source=imdb_id"
 
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=self.REQUEST_TIMEOUT)
             response.raise_for_status()
             data = response.json()
             tv_results = data.get('tv_results', [])
@@ -224,7 +225,7 @@ class RatingFetcher:
         url = f"{self.TMDB_BASE_URL}/search/tv"
 
         try:
-            response = requests.get(url, params=params)
+            response = requests.get(url, params=params, timeout=self.REQUEST_TIMEOUT)
             response.raise_for_status()
             data = response.json()
             results = data.get('results', [])
