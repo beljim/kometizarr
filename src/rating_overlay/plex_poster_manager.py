@@ -387,6 +387,8 @@ class PlexPosterManager:
             # Apply multi-rating overlay
             overlay_path = self.temp_dir / f"{movie.ratingKey}_overlay.jpg"
             effective_badge_style = self._build_effective_badge_style(movie, tmdb_id=tmdb_id, tmdb_status=tmdb_status)
+            if str((self.badge_style or {}).get('status_overlay', 'none')).strip().lower() == 'auto':
+                logger.info(f"Auto status for '{movie.title}': {effective_badge_style.get('status_overlay', 'none')}")
             self.multi_rating_badge.apply_to_poster(
                 poster_path=str(original_path),
                 ratings=ratings,

@@ -589,6 +589,7 @@ async def preview_posters(request: PreviewRequest):
                 # Apply overlay (no upload)
                 output_path = f'/tmp/kometizarr_prev_{item.ratingKey}.jpg'
                 effective_badge_style = manager._build_effective_badge_style(item, tmdb_id=tmdb_id)
+                applied_status_overlay = effective_badge_style.get('status_overlay', 'none')
                 manager.multi_rating_badge.apply_to_poster(
                     poster_path=str(poster_path),
                     ratings=ratings,
@@ -604,6 +605,7 @@ async def preview_posters(request: PreviewRequest):
                     'title': item.title,
                     'year': getattr(item, 'year', None),
                     'ratings': ratings,
+                    'status_overlay': applied_status_overlay,
                     'image': image_b64,
                 })
 

@@ -927,6 +927,9 @@ function PreviewModal({ results, loading, onClose }) {
                 <div className="text-xs text-gray-500 mt-0.5">
                   {Object.entries(item.ratings).map(([k, v]) => `${k.toUpperCase()}: ${v}`).join(' · ')}
                 </div>
+                <div className="text-xs text-gray-500 mt-0.5">
+                  Status Overlay: {(item.status_overlay || 'none').toUpperCase()}
+                </div>
               </div>
             </div>
           ))}
