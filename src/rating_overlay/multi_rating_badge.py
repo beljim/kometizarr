@@ -554,6 +554,7 @@ class MultiRatingBadge:
 
         # Optional status text overlay (cancelled / renewed / current)
         status_overlay = (badge_style or {}).get('status_overlay', 'none')
+        status_position = (badge_style or {}).get('status_position', 'center')
 
         # MODE 1: Individual badges (new 4-badge system)
         if badge_positions:
@@ -581,7 +582,7 @@ class MultiRatingBadge:
                 # Composite badge onto poster
                 poster.paste(badge, (badge_x, badge_y), badge)
 
-            self._apply_status_overlay(poster, status_overlay)
+            self._apply_status_overlay(poster, status_overlay, status_position)
 
             # Save
             poster_rgb = poster.convert('RGB')
@@ -629,7 +630,7 @@ class MultiRatingBadge:
             # Composite badge onto poster
             poster.paste(badge, (badge_x, badge_y), badge)
 
-            self._apply_status_overlay(poster, status_overlay)
+            self._apply_status_overlay(poster, status_overlay, status_position)
 
             # Save
             poster_rgb = poster.convert('RGB')
@@ -641,8 +642,8 @@ class MultiRatingBadge:
 
             return poster
 
-    def _apply_status_overlay(self, poster: Image.Image, status_overlay: Optional[str]):
-        """Apply a centered diagonal status text overlay on top of a poster."""
+    def _apply_status_overlay(self, poster: Image.Image, status_overlay: Optional[str], status_position: str = 'center'):
+        """Apply a status text overlay on a poster at the specified position."""
         if not status_overlay:
             return
 
@@ -662,15 +663,33 @@ class MultiRatingBadge:
         text_layer = Image.new('RGBA', (poster_width, poster_height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(text_layer)
 
+        # Position mapping (percentage of poster dimensions)
+        margin_x = int(poster_width * 0.05)
+        margin_y = int(poster_height * 0.08)
+        positions = {
+            'center':       (poster_width // 2, poster_height // 2, 'mm'),
+            'top':          (poster_width // 2, margin_y, 'mt'),
+            'bottom':       (poster_width // 2, poster_height - margin_y, 'mb'),
+            'top-left':     (margin_x, margin_y, 'lt'),
+            'top-right':    (poster_width - margin_x, margin_y, 'rt'),
+            'bottom-left':  (margin_x, poster_height - margin_y, 'lb'),
+            'bottom-right': (poster_width - margin_x, poster_height - margin_y, 'rb'),
+        }
+        x, y, anchor = positions.get(status_position, positions['center'])
+        rotation = -24 if status_position == 'center' else 0
+
         draw.text(
-            (poster_width // 2, poster_height // 2),
+            (x, y),
             style['label'],
             font=font,
             fill=style['color'],
-            anchor='mm',
+            anchor=anchor,
             stroke_width=max(2, int(font_size * 0.04)),
             stroke_fill=(0, 0, 0, 210)
         )
 
-        rotated = text_layer.rotate(-24, resample=Image.Resampling.BICUBIC, expand=False)
-        poster.alpha_composite(rotated)
+        if rotation:
+            rotated = text_layer.rotate(rotation, resample=Image.Resampling.BICUBIC, expand=False)
+            poster.alpha_composite(rotated)
+        else:
+            poster.alpha_composite(text_layer)

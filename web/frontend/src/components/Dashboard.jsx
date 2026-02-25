@@ -7,7 +7,8 @@ const DEFAULT_BADGE_STYLE = {
   rating_color: '#FFD700',    // Gold color (default)
   background_opacity: 128,    // 0-255, default 128 (50%)
   font_family: 'DejaVu Sans Bold',  // Font family
-  status_overlay: 'none' // none | auto | current | renewed | cancelled
+  status_overlay: 'none', // none | auto | current | renewed | cancelled
+  status_position: 'center' // center | top | bottom | top-left | top-right | bottom-left | bottom-right
 }
 
 function Dashboard({ onStartProcessing, onLibrarySelect }) {
@@ -492,18 +493,31 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                       const statusConfig = statusMap[status]
                       if (!statusConfig) return null
 
+                      const pos = badgeStyle.status_position || 'center'
+                      const posCoords = {
+                        'center':       { x: 60, y: 84, anchor: 'middle', baseline: 'middle' },
+                        'top':          { x: 60, y: 14, anchor: 'middle', baseline: 'hanging' },
+                        'bottom':       { x: 60, y: 154, anchor: 'middle', baseline: 'auto' },
+                        'top-left':     { x: 6, y: 14, anchor: 'start', baseline: 'hanging' },
+                        'top-right':    { x: 114, y: 14, anchor: 'end', baseline: 'hanging' },
+                        'bottom-left':  { x: 6, y: 154, anchor: 'start', baseline: 'auto' },
+                        'bottom-right': { x: 114, y: 154, anchor: 'end', baseline: 'auto' },
+                      }
+                      const { x, y, anchor, baseline } = posCoords[pos] || posCoords['center']
+                      const rotation = pos === 'center' ? `rotate(-24 ${x} ${y})` : ''
+
                       return (
-                        <g className="pointer-events-none select-none" transform="rotate(-24 60 84)">
+                        <g className="pointer-events-none select-none" transform={rotation}>
                           <text
-                            x="60"
-                            y="84"
+                            x={x}
+                            y={y}
                             fontSize="13"
                             fontWeight="700"
                             fill={statusConfig.color}
                             stroke="#000"
                             strokeWidth="1.5"
-                            textAnchor="middle"
-                            dominantBaseline="middle"
+                            textAnchor={anchor}
+                            dominantBaseline={baseline}
                             opacity="0.85"
                           >
                             {statusConfig.label}
@@ -774,6 +788,28 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                       <span className="block mt-1">Mapped values: cancelled → <span className="text-red-400">Cancelled</span>, renewed → <span className="text-green-400">Renewed</span>, returning/continuing/in production/current/running/planned/pilot → <span className="text-blue-400">Current</span>. Unknown status = no stamp.</span>
                     </div>
                   </div>
+
+                  {/* Status Position */}
+                  {(badgeStyle.status_overlay || 'none') !== 'none' && (
+                    <div>
+                      <label className="text-xs text-gray-400 block mb-1">
+                        Status Position
+                      </label>
+                      <select
+                        value={badgeStyle.status_position || 'center'}
+                        onChange={(e) => updateBadgeStyle('status_position', e.target.value)}
+                        className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white"
+                      >
+                        <option value="center">Center (diagonal)</option>
+                        <option value="top">Top</option>
+                        <option value="bottom">Bottom</option>
+                        <option value="top-left">Top Left</option>
+                        <option value="top-right">Top Right</option>
+                        <option value="bottom-left">Bottom Left</option>
+                        <option value="bottom-right">Bottom Right</option>
+                      </select>
+                    </div>
+                  )}
 
                   {/* Reset Button */}
                   <button

@@ -1083,6 +1083,7 @@ DEFAULT_BADGE_STYLE = {
     "background_opacity": 128,
     "font_family": "DejaVu Sans Bold",
     "status_overlay": "none",
+    "status_position": "center",
 }
 
 DEFAULT_RATING_SOURCES = {
