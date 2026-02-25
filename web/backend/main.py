@@ -518,19 +518,37 @@ async def preview_posters(request: PreviewRequest):
         )
 
         all_items = manager.library.all()
-        candidate_count = min(max(request.count * 8, request.count), len(all_items))
-        sample = random.sample(all_items, candidate_count)
+        sample = list(all_items)
+        random.shuffle(sample)
+
+        debug = {
+            'total_items': len(all_items),
+            'sampled': 0,
+            'returned': 0,
+            'skipped_no_ids': 0,
+            'skipped_no_ratings': 0,
+            'skipped_no_poster': 0,
+            'skipped_download_failed': 0,
+            'skipped_render_failed': 0,
+        }
 
         results = []
         for item in sample:
             if len(results) >= request.count:
                 break
 
+            debug['sampled'] += 1
+
             try:
                 # Fetch ratings using same priority order as process_movie
                 plex_ratings = manager._extract_plex_ratings(item)
                 tmdb_id = manager._extract_tmdb_id(item.guids)
                 imdb_id = manager._extract_imdb_id(item.guids)
+
+                if not tmdb_id and not imdb_id:
+                    debug['skipped_no_ids'] += 1
+                    continue
+
                 ratings = {}
 
                 # Priority 1: Plex ratings
@@ -566,6 +584,7 @@ async def preview_posters(request: PreviewRequest):
                     ratings = {k: v for k, v in ratings.items() if request.rating_sources.get(k, True)}
 
                 if not ratings or all(v == 0 for v in ratings.values()):
+                    debug['skipped_no_ratings'] += 1
                     continue
 
                 # Use existing backup poster if available, otherwise download
@@ -574,6 +593,7 @@ async def preview_posters(request: PreviewRequest):
                 if not poster_path:
                     poster_url = item.posterUrl
                     if not poster_url:
+                        debug['skipped_no_poster'] += 1
                         continue
                     response = req.get(
                         poster_url,
@@ -581,6 +601,7 @@ async def preview_posters(request: PreviewRequest):
                         timeout=15
                     )
                     if response.status_code != 200:
+                        debug['skipped_download_failed'] += 1
                         continue
                     tmp_src = Path(f'/tmp/kometizarr_prev_src_{item.ratingKey}.jpg')
                     tmp_src.write_bytes(response.content)
@@ -608,12 +629,17 @@ async def preview_posters(request: PreviewRequest):
                     'status_overlay': applied_status_overlay,
                     'image': image_b64,
                 })
+                debug['returned'] = len(results)
 
             except Exception as e:
                 logger.warning(f"Preview skipped for {item.title}: {e}")
+                debug['skipped_render_failed'] += 1
                 continue
 
-        return {'previews': results}
+        if not results:
+            logger.info(f"Preview debug for {request.library_name}: {debug}")
+
+        return {'previews': results, 'debug': debug}
 
     except Exception as e:
         logger.error(f"Preview failed: {e}")

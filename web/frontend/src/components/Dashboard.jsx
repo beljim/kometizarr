@@ -32,6 +32,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
   const [force, setForce] = useState(false)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewResults, setPreviewResults] = useState(null)  // null = closed, [] = loading/empty
+  const [previewDebug, setPreviewDebug] = useState(null)
   const [ratingSources, setRatingSources] = useState(() => {
     // Load from localStorage or default to all enabled
     const saved = localStorage.getItem('kometizarr_rating_sources')
@@ -329,6 +330,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
     if (!selectedLibrary) return
     setPreviewLoading(true)
     setPreviewResults([])
+    setPreviewDebug(null)
 
     const enabledBadgePositions = {}
     Object.keys(ratingSources).forEach(source => {
@@ -351,9 +353,11 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
       })
       const data = await res.json()
       setPreviewResults(data.previews || [])
+      setPreviewDebug(data.debug || null)
     } catch (error) {
       console.error('Preview failed:', error)
       setPreviewResults([])
+      setPreviewDebug(null)
     } finally {
       setPreviewLoading(false)
     }
@@ -887,6 +891,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
       </div>
       <PreviewModal
         results={previewResults}
+        debug={previewDebug}
         loading={previewLoading}
         onClose={() => setPreviewResults(null)}
       />
@@ -895,7 +900,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
 }
 
 // Preview Modal — rendered outside the main panel so it overlays everything
-function PreviewModal({ results, loading, onClose }) {
+function PreviewModal({ results, debug, loading, onClose }) {
   if (results === null) return null
 
   return (
@@ -911,7 +916,14 @@ function PreviewModal({ results, loading, onClose }) {
         )}
 
         {!loading && results.length === 0 && (
-          <div className="text-center text-gray-400 py-12">No results — library may have no rated items with matching sources.</div>
+          <div className="text-center text-gray-400 py-12 space-y-2">
+            <div>No results — library may have no rated items with matching sources.</div>
+            {debug && (
+              <div className="text-xs text-gray-500">
+                sampled={debug.sampled}/{debug.total_items} · no_ids={debug.skipped_no_ids} · no_ratings={debug.skipped_no_ratings} · no_poster={debug.skipped_no_poster} · download_failed={debug.skipped_download_failed} · render_failed={debug.skipped_render_failed}
+              </div>
+            )}
+          </div>
         )}
 
         <div className="grid grid-cols-3 gap-5">
