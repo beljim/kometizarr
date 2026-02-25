@@ -262,6 +262,11 @@ class PlexPosterManager:
         effective_style = dict(self.badge_style or {})
         selected_status = str(effective_style.get('status_overlay', 'none')).strip().lower()
 
+        # Status overlays only apply to TV shows
+        if self.library.type != 'show' and selected_status != 'none':
+            effective_style['status_overlay'] = 'none'
+            return effective_style
+
         if selected_status != 'auto':
             return effective_style
 
