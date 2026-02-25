@@ -170,7 +170,13 @@ class PlexPosterManager:
 
         return None
 
-    def _resolve_item_status_overlay(self, item, tmdb_id: Optional[int] = None, tmdb_status: Optional[str] = None) -> Optional[str]:
+    def _resolve_item_status_overlay(
+        self,
+        item,
+        tmdb_id: Optional[int] = None,
+        tmdb_status: Optional[str] = None,
+        imdb_id: Optional[str] = None
+    ) -> Optional[str]:
         """Resolve status overlay for a single item when status_overlay is set to 'auto'."""
         if self.library.type != 'show':
             return None
@@ -190,11 +196,40 @@ class PlexPosterManager:
         if tmdb_id:
             rating_data = self.rating_fetcher.fetch_tmdb_rating(tmdb_id, media_type='tv')
             if rating_data:
-                return self._map_status_to_overlay(
+                mapped = self._map_status_to_overlay(
                     rating_data.get('status'),
                     in_production=rating_data.get('in_production'),
                     has_next_episode=bool(rating_data.get('next_episode_to_air'))
                 )
+                if mapped:
+                    return mapped
+
+        # 4) Resolve TMDB TV status via IMDb ID (common when Plex has IMDb GUID but no TMDB GUID)
+        if imdb_id:
+            imdb_tmdb_data = self.rating_fetcher.fetch_tmdb_tv_status_by_imdb_id(imdb_id)
+            if imdb_tmdb_data:
+                mapped = self._map_status_to_overlay(
+                    imdb_tmdb_data.get('status'),
+                    in_production=imdb_tmdb_data.get('in_production'),
+                    has_next_episode=bool(imdb_tmdb_data.get('next_episode_to_air'))
+                )
+                if mapped:
+                    return mapped
+
+        # 5) Last fallback: TMDB title search
+        title = getattr(item, 'title', None)
+        year = getattr(item, 'year', None)
+        title_tmdb_data = self.rating_fetcher.fetch_tmdb_tv_status_by_title(title, year=year)
+        if title_tmdb_data:
+            mapped = self._map_status_to_overlay(
+                title_tmdb_data.get('status'),
+                in_production=title_tmdb_data.get('in_production'),
+                has_next_episode=bool(title_tmdb_data.get('next_episode_to_air'))
+            )
+            if mapped:
+                return mapped
+
+        logger.info(f"Auto status unresolved for '{getattr(item, 'title', 'unknown')}'")
 
         return None
 
@@ -206,7 +241,7 @@ class PlexPosterManager:
         if selected_status != 'auto':
             return effective_style
 
-        resolved_status = self._resolve_item_status_overlay(item, tmdb_id=tmdb_id, tmdb_status=tmdb_status)
+        resolved_status = self._resolve_item_status_overlay(item, tmdb_id=tmdb_id, tmdb_status=tmdb_status, imdb_id=self._extract_imdb_id(item.guids))
         effective_style['status_overlay'] = resolved_status or 'none'
         return effective_style
 

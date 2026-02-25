@@ -178,3 +178,69 @@ class RatingFetcher:
         except Exception as e:
             print(f"✗ Error fetching MDBList rating: {e}")
             return None
+
+    def fetch_tmdb_tv_status_by_imdb_id(self, imdb_id: str) -> Optional[Dict]:
+        """Resolve TMDB TV status by IMDb ID via TMDB /find endpoint."""
+        if not imdb_id:
+            return None
+
+        url = f"{self.TMDB_BASE_URL}/find/{imdb_id}?api_key={self.tmdb_api_key}&external_source=imdb_id"
+
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            data = response.json()
+            tv_results = data.get('tv_results', [])
+            if not tv_results:
+                return None
+
+            tmdb_id = tv_results[0].get('id')
+            if not tmdb_id:
+                return None
+
+            details = self.fetch_tmdb_rating(tmdb_id, media_type='tv')
+            if not details:
+                return None
+
+            details['tmdb_id'] = tmdb_id
+            return details
+        except Exception as e:
+            print(f"✗ Error resolving TMDB TV status by IMDb ID: {e}")
+            return None
+
+    def fetch_tmdb_tv_status_by_title(self, title: str, year: Optional[int] = None) -> Optional[Dict]:
+        """Resolve TMDB TV status by title search as a last fallback."""
+        if not title:
+            return None
+
+        params = {
+            'api_key': self.tmdb_api_key,
+            'query': title,
+            'include_adult': 'false',
+        }
+        if year:
+            params['first_air_date_year'] = year
+
+        url = f"{self.TMDB_BASE_URL}/search/tv"
+
+        try:
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            results = data.get('results', [])
+            if not results:
+                return None
+
+            tmdb_id = results[0].get('id')
+            if not tmdb_id:
+                return None
+
+            details = self.fetch_tmdb_rating(tmdb_id, media_type='tv')
+            if not details:
+                return None
+
+            details['tmdb_id'] = tmdb_id
+            return details
+        except Exception as e:
+            print(f"✗ Error resolving TMDB TV status by title: {e}")
+            return None
