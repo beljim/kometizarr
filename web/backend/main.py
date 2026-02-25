@@ -518,18 +518,49 @@ async def preview_posters(request: PreviewRequest):
         )
 
         all_items = manager.library.all()
-        sample = random.sample(all_items, min(request.count, len(all_items)))
+        candidate_count = min(max(request.count * 8, request.count), len(all_items))
+        sample = random.sample(all_items, candidate_count)
 
         results = []
         for item in sample:
+            if len(results) >= request.count:
+                break
+
             try:
                 # Fetch ratings using same priority order as process_movie
                 plex_ratings = manager._extract_plex_ratings(item)
                 tmdb_id = manager._extract_tmdb_id(item.guids)
+                imdb_id = manager._extract_imdb_id(item.guids)
                 ratings = {}
+
+                # Priority 1: Plex ratings
                 for key in ('tmdb', 'imdb', 'rt_critic', 'rt_audience'):
                     if key in plex_ratings:
                         ratings[key] = plex_ratings[key]
+
+                # Priority 2: API fallback for missing ratings
+                media_type = 'tv' if manager.library.type == 'show' else 'movie'
+                if 'tmdb' not in ratings and tmdb_id:
+                    tmdb_data = manager.rating_fetcher.fetch_tmdb_rating(tmdb_id, media_type=media_type)
+                    if tmdb_data and tmdb_data.get('rating', 0) > 0:
+                        ratings['tmdb'] = tmdb_data['rating']
+
+                if imdb_id:
+                    if 'imdb' not in ratings:
+                        omdb_data = manager.rating_fetcher.fetch_omdb_rating(imdb_id)
+                        if omdb_data and omdb_data.get('imdb_rating'):
+                            try:
+                                ratings['imdb'] = float(omdb_data['imdb_rating'])
+                            except Exception:
+                                pass
+
+                    if 'rt_critic' not in ratings or 'rt_audience' not in ratings:
+                        mdb_data = manager.rating_fetcher.fetch_mdblist_rating(imdb_id)
+                        if mdb_data:
+                            if 'rt_critic' not in ratings and mdb_data.get('rt_critic'):
+                                ratings['rt_critic'] = mdb_data['rt_critic']
+                            if 'rt_audience' not in ratings and mdb_data.get('rt_audience'):
+                                ratings['rt_audience'] = mdb_data['rt_audience']
 
                 if request.rating_sources:
                     ratings = {k: v for k, v in ratings.items() if request.rating_sources.get(k, True)}
