@@ -56,6 +56,7 @@ class RatingFetcher:
                 'rating': rating,
                 'vote_count': vote_count,
                 'title': title,
+                'status': data.get('status'),
                 'source': 'tmdb'
             }
         except Exception as e:

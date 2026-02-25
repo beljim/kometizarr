@@ -14,6 +14,8 @@ Kometizarr automatically adds gorgeous multi-source rating badges to your Plex m
 - **Visual alignment guides** — Live grid overlay for precise badge placement
 - **11 font options** — DejaVu Sans/Serif/Mono in Bold, Regular, and Italic variants
 - **Per-badge customization** — Font, color, opacity, size, and logo scale per badge
+- **Status overlays** — Add poster stamps: Current, Renewed, or Cancelled
+- **Auto status mode (TV)** — Resolves per item from Plex status first, then TMDB fallback
 - **Live preview** — Render 3 real posters from your library before committing
 - **Backward compatible** — Legacy unified badge still supported
 
@@ -196,6 +198,7 @@ Then open `http://localhost:3001` in your browser! 🎉
 - 🎯 One-click processing with live progress tracking
 - 📈 Live success/failure/skipped counts
 - 🎨 Rating source filtering (choose TMDB, IMDb, RT Critic, RT Audience)
+- 🏷️ Status overlays (Off, Auto, Current, Renewed, Cancelled)
 - 🔄 Browser refresh resilience (resumes monitoring active operations)
 - ⏱️ 10-second countdown on completion with skip option
 - 🛑 Cancel/stop button to abort processing mid-run
@@ -483,6 +486,7 @@ manager.process_library()  # Preview without applying
 - [x] **Multi-library selection** (v1.2.0) — Checkbox selection for cron, webhook, and dashboard
 - [x] **Settings tab** (v1.2.0) — Full automation config in the Web UI, persisted across restarts
 - [x] **Webhook/cron badge fix** (v1.2.1) — Webhook and cron now use the badge style & positions configured in the UI (defaults to 4-corner layout on first run)
+- [x] **Status overlays** — Manual stamps (Current, Renewed, Cancelled) plus Auto mapping for TV libraries
 
 ### Planned 🚧
 - [ ] **Per-episode ratings for TV shows** — Season/episode level overlay support

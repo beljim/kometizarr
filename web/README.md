@@ -9,6 +9,8 @@ Beautiful web interface for managing Plex rating overlays with real-time progres
 - 🔄 **Auto-Reconnect** - WebSocket automatically reconnects if connection drops
 - 🌐 **Browser Refresh Resilience** - Refresh during processing and resume monitoring
 - 🎨 **Rating Source Filtering** - Choose which ratings to display (TMDB, IMDb, RT)
+- 🏷️ **Status Overlays** - Add Current, Renewed, or Cancelled stamps
+- 🤖 **Auto Status Mode (TV)** - Resolves per item using Plex status first, then TMDB fallback
 - ⏱️ **Completion Countdown** - 10-second countdown before returning to dashboard
 - 🛑 **Cancel/Stop Button** - Abort processing mid-run with confirmation dialog
 - ⚙️ **Easy Configuration** - Select libraries and options with a clean UI
@@ -164,6 +166,16 @@ Preferences are saved in your browser (localStorage) and persist across sessions
   - Safe to use when updating overlay design or position
   - Useful when changing rating sources (e.g., adding/removing RT scores)
 
+- **Status Overlay** - Add an optional stamp to posters
+  - **Off** - No status stamp
+  - **Current / Renewed / Cancelled** - Apply a fixed status to all processed items
+  - **Auto (per item)** - TV libraries only; maps status from Plex first, then TMDB fallback
+  - Auto mapping rules:
+    - `cancelled` -> Cancelled
+    - `renewed` -> Renewed
+    - `returning`, `continuing`, `in production`, `current`, `running`, `planned`, `pilot` -> Current
+    - Unknown status -> no stamp
+
 ## Integration with Arr Stack
 
 Since Kometizarr uses Docker, you can add it to your existing Arr stack network:
@@ -221,6 +233,7 @@ networks:
 ### Completed ✅
 - [x] **Badge Preview** (v1.1.1) - Real-time preview with drag-and-drop positioning
 - [x] **4-Badge Independent Positioning** (v1.1.1) - Position each rating badge separately
+- [x] **Status Overlays** - Off/Auto/Current/Renewed/Cancelled with per-item Auto mapping for TV
 
 ### Planned 🚧
 - [ ] **Authentication** - User login and session management

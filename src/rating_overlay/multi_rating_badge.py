@@ -28,6 +28,12 @@ class MultiRatingBadge:
         'DejaVu Sans Mono Oblique': '/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Oblique.ttf',
     }
 
+    STATUS_STYLES = {
+        'cancelled': {'label': 'CANCELLED', 'color': (220, 38, 38, 180)},
+        'renewed': {'label': 'RENEWED', 'color': (34, 197, 94, 180)},
+        'current': {'label': 'CURRENT', 'color': (59, 130, 246, 180)},
+    }
+
     def __init__(self, assets_dir: str = None):
         """
         Initialize multi-rating badge generator
@@ -546,6 +552,9 @@ class MultiRatingBadge:
         poster = Image.open(poster_path).convert('RGBA')
         poster_width, poster_height = poster.size
 
+        # Optional status text overlay (cancelled / renewed / current)
+        status_overlay = (badge_style or {}).get('status_overlay', 'none')
+
         # MODE 1: Individual badges (new 4-badge system)
         if badge_positions:
             for source, rating in ratings.items():
@@ -571,6 +580,8 @@ class MultiRatingBadge:
 
                 # Composite badge onto poster
                 poster.paste(badge, (badge_x, badge_y), badge)
+
+            self._apply_status_overlay(poster, status_overlay)
 
             # Save
             poster_rgb = poster.convert('RGB')
@@ -618,6 +629,8 @@ class MultiRatingBadge:
             # Composite badge onto poster
             poster.paste(badge, (badge_x, badge_y), badge)
 
+            self._apply_status_overlay(poster, status_overlay)
+
             # Save
             poster_rgb = poster.convert('RGB')
             poster_rgb.save(output_path, 'JPEG', quality=95)
@@ -627,3 +640,37 @@ class MultiRatingBadge:
             print(f"  Ratings: {', '.join([f'{k.upper()}: {v}' for k, v in ratings.items()])}")
 
             return poster
+
+    def _apply_status_overlay(self, poster: Image.Image, status_overlay: Optional[str]):
+        """Apply a centered diagonal status text overlay on top of a poster."""
+        if not status_overlay:
+            return
+
+        status_key = status_overlay.lower().strip()
+        if status_key == 'none' or status_key not in self.STATUS_STYLES:
+            return
+
+        style = self.STATUS_STYLES[status_key]
+        poster_width, poster_height = poster.size
+        font_size = max(24, int(min(poster_width, poster_height) * 0.16))
+
+        try:
+            font = ImageFont.truetype(self.FONT_PATHS['DejaVu Sans Bold'], font_size)
+        except Exception:
+            font = ImageFont.load_default()
+
+        text_layer = Image.new('RGBA', (poster_width, poster_height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(text_layer)
+
+        draw.text(
+            (poster_width // 2, poster_height // 2),
+            style['label'],
+            font=font,
+            fill=style['color'],
+            anchor='mm',
+            stroke_width=max(2, int(font_size * 0.04)),
+            stroke_fill=(0, 0, 0, 210)
+        )
+
+        rotated = text_layer.rotate(-24, resample=Image.Resampling.BICUBIC, expand=False)
+        poster.alpha_composite(rotated)

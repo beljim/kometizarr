@@ -1,5 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
 
+const DEFAULT_BADGE_STYLE = {
+  individual_badge_size: 12,  // Individual badge size (% of poster width)
+  font_size_multiplier: 1.0,  // Multiplier for font sizes
+  logo_size_multiplier: 1.0,  // Multiplier for logo within badge
+  rating_color: '#FFD700',    // Gold color (default)
+  background_opacity: 128,    // 0-255, default 128 (50%)
+  font_family: 'DejaVu Sans Bold',  // Font family
+  status_overlay: 'none' // none | auto | current | renewed | cancelled
+}
+
 function Dashboard({ onStartProcessing, onLibrarySelect }) {
   const [libraries, setLibraries] = useState([])
   const [selectedLibrary, setSelectedLibrary] = useState(null)   // for stats / preview
@@ -35,13 +45,12 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
   const [badgeStyle, setBadgeStyle] = useState(() => {
     // Load from localStorage or use defaults
     const saved = localStorage.getItem('kometizarr_badge_style')
-    return saved ? JSON.parse(saved) : {
-      individual_badge_size: 12,  // Individual badge size (% of poster width)
-      font_size_multiplier: 1.0,  // Multiplier for font sizes
-      logo_size_multiplier: 1.0,  // Multiplier for logo within badge
-      rating_color: '#FFD700',    // Gold color (default)
-      background_opacity: 128,    // 0-255, default 128 (50%)
-      font_family: 'DejaVu Sans Bold'  // Font family
+    if (!saved) return DEFAULT_BADGE_STYLE
+
+    try {
+      return { ...DEFAULT_BADGE_STYLE, ...JSON.parse(saved) }
+    } catch {
+      return DEFAULT_BADGE_STYLE
     }
   })
 
@@ -456,6 +465,41 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                     {/* Poster Background */}
                     <rect x="0" y="0" width="120" height="168" fill="#1f2937" stroke="#4b5563" strokeWidth="2" rx="3" />
 
+                    {/* Status Overlay Preview */}
+                    {(() => {
+                      const status = badgeStyle.status_overlay || 'none'
+                      if (status === 'none') return null
+
+                      const statusMap = {
+                        auto: { label: 'AUTO', color: '#9ca3af' },
+                        cancelled: { label: 'CANCELLED', color: '#dc2626' },
+                        renewed: { label: 'RENEWED', color: '#22c55e' },
+                        current: { label: 'CURRENT', color: '#3b82f6' }
+                      }
+
+                      const statusConfig = statusMap[status]
+                      if (!statusConfig) return null
+
+                      return (
+                        <g className="pointer-events-none select-none" transform="rotate(-24 60 84)">
+                          <text
+                            x="60"
+                            y="84"
+                            fontSize="13"
+                            fontWeight="700"
+                            fill={statusConfig.color}
+                            stroke="#000"
+                            strokeWidth="1.5"
+                            textAnchor="middle"
+                            dominantBaseline="middle"
+                            opacity="0.85"
+                          >
+                            {statusConfig.label}
+                          </text>
+                        </g>
+                      )
+                    })()}
+
                     {/* Individual Badges - dynamically sized and styled */}
                     {(() => {
                       // Calculate badge dimensions based on style settings
@@ -697,19 +741,35 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                     />
                   </div>
 
+                  {/* Series Status Overlay */}
+                  <div>
+                    <label className="text-xs text-gray-400 block mb-1">
+                      Status Overlay
+                    </label>
+                    <select
+                      value={badgeStyle.status_overlay || 'none'}
+                      onChange={(e) => updateBadgeStyle('status_overlay', e.target.value)}
+                      className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white"
+                    >
+                      <option value="none">Off</option>
+                      <option value="auto">Auto (per item)</option>
+                      <option value="current">Current</option>
+                      <option value="renewed">Renewed</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                    <div className="mt-2 p-2 bg-gray-800/60 border border-gray-700 rounded text-xs text-gray-400 leading-relaxed">
+                      <span className="text-gray-300 font-medium">Auto mode:</span> TV libraries only. Uses Plex status first, then TMDB fallback.
+                      <span className="block mt-1">Mapped values: cancelled → <span className="text-red-400">Cancelled</span>, renewed → <span className="text-green-400">Renewed</span>, returning/continuing/in production/current/running/planned/pilot → <span className="text-blue-400">Current</span>. Unknown status = no stamp.</span>
+                    </div>
+                  </div>
+
                   {/* Reset Button */}
                   <button
                     onClick={() => {
-                      const defaults = {
-                        individual_badge_size: 12,
-                        font_size_multiplier: 1.0,
-                        logo_size_multiplier: 1.0,
-                        rating_color: '#FFD700',
-                        background_opacity: 128,
-                        font_family: 'DejaVu Sans Bold'
-                      }
+                      const defaults = DEFAULT_BADGE_STYLE
                       setBadgeStyle(defaults)
                       localStorage.setItem('kometizarr_badge_style', JSON.stringify(defaults))
+                      persistBadgeSettings({ badge_style: defaults })
                     }}
                     className="w-full text-xs px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded border border-gray-700 transition"
                   >

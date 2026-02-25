@@ -135,6 +135,63 @@ class PlexPosterManager:
 
         return plex_ratings
 
+    def _map_status_to_overlay(self, status_value: Optional[str]) -> Optional[str]:
+        """Map provider status text to overlay style key."""
+        if not status_value:
+            return None
+
+        normalized = status_value.strip().lower()
+
+        if 'cancel' in normalized:
+            return 'cancelled'
+        if 'renew' in normalized:
+            return 'renewed'
+
+        current_tokens = [
+            'returning', 'continuing', 'in production',
+            'current', 'running', 'planned', 'pilot'
+        ]
+        if any(token in normalized for token in current_tokens):
+            return 'current'
+
+        return None
+
+    def _resolve_item_status_overlay(self, item, tmdb_id: Optional[int] = None, tmdb_status: Optional[str] = None) -> Optional[str]:
+        """Resolve status overlay for a single item when status_overlay is set to 'auto'."""
+        if self.library.type != 'show':
+            return None
+
+        # 1) Try Plex metadata first
+        plex_status = getattr(item, 'status', None) or getattr(item, 'showStatus', None)
+        mapped = self._map_status_to_overlay(plex_status)
+        if mapped:
+            return mapped
+
+        # 2) Use already-fetched TMDB status if available
+        mapped = self._map_status_to_overlay(tmdb_status)
+        if mapped:
+            return mapped
+
+        # 3) Fallback TMDB lookup for status only
+        if tmdb_id:
+            rating_data = self.rating_fetcher.fetch_tmdb_rating(tmdb_id, media_type='tv')
+            if rating_data:
+                return self._map_status_to_overlay(rating_data.get('status'))
+
+        return None
+
+    def _build_effective_badge_style(self, item, tmdb_id: Optional[int] = None, tmdb_status: Optional[str] = None) -> Dict[str, Any]:
+        """Build final badge style for an item, resolving auto status overlay if configured."""
+        effective_style = dict(self.badge_style or {})
+        selected_status = str(effective_style.get('status_overlay', 'none')).strip().lower()
+
+        if selected_status != 'auto':
+            return effective_style
+
+        resolved_status = self._resolve_item_status_overlay(item, tmdb_id=tmdb_id, tmdb_status=tmdb_status)
+        effective_style['status_overlay'] = resolved_status or 'none'
+        return effective_style
+
     def process_movie(
         self,
         movie,
@@ -161,6 +218,7 @@ class PlexPosterManager:
             # Extract IDs - TMDB ID is optional (many TV shows don't have it)
             tmdb_id = self._extract_tmdb_id(movie.guids)
             imdb_id = self._extract_imdb_id(movie.guids)
+            tmdb_status = None
 
             # Need at least one ID to proceed
             if not tmdb_id and not imdb_id:
@@ -187,6 +245,8 @@ class PlexPosterManager:
                 # Determine media type (movie vs TV show)
                 media_type = 'tv' if self.library.type == 'show' else 'movie'
                 rating_data = self.rating_fetcher.fetch_tmdb_rating(tmdb_id, media_type=media_type)
+                if rating_data:
+                    tmdb_status = rating_data.get('status')
 
                 if rating_data and rating_data.get('rating', 0) > 0:
                     ratings['tmdb'] = rating_data['rating']
@@ -273,12 +333,13 @@ class PlexPosterManager:
 
             # Apply multi-rating overlay
             overlay_path = self.temp_dir / f"{movie.ratingKey}_overlay.jpg"
+            effective_badge_style = self._build_effective_badge_style(movie, tmdb_id=tmdb_id, tmdb_status=tmdb_status)
             self.multi_rating_badge.apply_to_poster(
                 poster_path=str(original_path),
                 ratings=ratings,
                 output_path=str(overlay_path),
                 position=position,
-                badge_style=self.badge_style,  # Pass custom styling options
+                badge_style=effective_badge_style,  # Pass custom styling options
                 badge_positions=badge_positions  # Pass individual badge positions if provided
             )
 

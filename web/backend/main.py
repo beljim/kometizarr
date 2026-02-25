@@ -525,6 +525,7 @@ async def preview_posters(request: PreviewRequest):
             try:
                 # Fetch ratings using same priority order as process_movie
                 plex_ratings = manager._extract_plex_ratings(item)
+                tmdb_id = manager._extract_tmdb_id(item.guids)
                 ratings = {}
                 for key in ('tmdb', 'imdb', 'rt_critic', 'rt_audience'):
                     if key in plex_ratings:
@@ -556,11 +557,12 @@ async def preview_posters(request: PreviewRequest):
 
                 # Apply overlay (no upload)
                 output_path = f'/tmp/kometizarr_prev_{item.ratingKey}.jpg'
+                effective_badge_style = manager._build_effective_badge_style(item, tmdb_id=tmdb_id)
                 manager.multi_rating_badge.apply_to_poster(
                     poster_path=str(poster_path),
                     ratings=ratings,
                     output_path=output_path,
-                    badge_style=manager.badge_style,
+                    badge_style=effective_badge_style,
                     badge_positions=request.badge_positions,
                 )
 
@@ -1013,6 +1015,7 @@ DEFAULT_BADGE_STYLE = {
     "rating_color": "#FFD700",
     "background_opacity": 128,
     "font_family": "DejaVu Sans Bold",
+    "status_overlay": "none",
 }
 
 DEFAULT_RATING_SOURCES = {
@@ -1032,6 +1035,11 @@ async def startup_event():
     if "badge_style" not in settings:
         settings["badge_style"] = DEFAULT_BADGE_STYLE
         changed = True
+    else:
+        for key, value in DEFAULT_BADGE_STYLE.items():
+            if key not in settings["badge_style"]:
+                settings["badge_style"][key] = value
+                changed = True
     if "rating_sources" not in settings:
         settings["rating_sources"] = DEFAULT_RATING_SOURCES
         changed = True
