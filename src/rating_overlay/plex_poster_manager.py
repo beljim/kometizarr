@@ -362,9 +362,13 @@ class PlexPosterManager:
                 }
 
             # Check if we have ANY ratings - fail only if all sources are empty/zero
+            # Exception: if status overlay is configured, proceed anyway (show may be unrated but still needs status stamp)
             if not ratings or all(v == 0 for v in ratings.values()):
-                logger.warning(f"⚠️  {movie.title}: No ratings available from any source")
-                return False
+                selected_status = str((self.badge_style or {}).get('status_overlay', 'none')).strip().lower()
+                if selected_status == 'none':
+                    logger.warning(f"⚠️  {movie.title}: No ratings available from any source")
+                    return False
+                logger.info(f"⚠️  {movie.title}: No ratings but status overlay enabled, proceeding")
 
             logger.info(f"Processing: {movie.title} (Ratings: {ratings})")
 

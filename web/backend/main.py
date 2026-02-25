@@ -594,9 +594,11 @@ async def preview_posters(request: PreviewRequest):
                 if request.rating_sources:
                     ratings = {k: v for k, v in ratings.items() if request.rating_sources.get(k, True)}
 
+                selected_status = str((request.badge_style or {}).get('status_overlay', 'none')).strip().lower()
                 if not ratings or all(v == 0 for v in ratings.values()):
-                    debug['skipped_no_ratings'] += 1
-                    continue
+                    if selected_status == 'none':
+                        debug['skipped_no_ratings'] += 1
+                        continue
 
                 # Use existing backup poster if available, otherwise download
                 poster_path = manager.backup_manager.get_original_poster(manager.library_name, item.title)
