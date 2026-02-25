@@ -8,7 +8,8 @@ const DEFAULT_BADGE_STYLE = {
   background_opacity: 128,    // 0-255, default 128 (50%)
   font_family: 'DejaVu Sans Bold',  // Font family
   status_overlay: 'none', // none | auto | current | renewed | cancelled
-  status_position: { x: 50, y: 50 } // {x, y} percentage — draggable like badges
+  status_position: { x: 50, y: 50 }, // {x, y} percentage — draggable like badges
+  status_rotation: 0 // 0 = horizontal, 90 = vertical (top-to-bottom), -90 = vertical (bottom-to-top)
 }
 
 function Dashboard({ onStartProcessing, onLibrarySelect }) {
@@ -520,10 +521,14 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                       const sPos = badgeStyle.status_position || { x: 50, y: 50 }
                       const sx = typeof sPos === 'object' ? (sPos.x / 100) * 120 : 60
                       const sy = typeof sPos === 'object' ? (sPos.y / 100) * 168 : 84
+                      const rot = badgeStyle.status_rotation || 0
 
                       const labelLen = statusConfig.label.length
-                      const bgW = Math.max(labelLen * 7.5 + 6, 40)
-                      const bgH = 16
+                      const textW = Math.max(labelLen * 7.5 + 6, 40)
+                      const textH = 16
+                      // For vertical text, swap pill dimensions
+                      const bgW = rot === 0 ? textW : textH
+                      const bgH = rot === 0 ? textH : textW
 
                       return (
                         <g
@@ -547,6 +552,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                             fill={statusConfig.color}
                             textAnchor="middle"
                             dominantBaseline="central"
+                            transform={rot !== 0 ? `rotate(${rot} ${sx} ${sy})` : undefined}
                             className="pointer-events-none select-none"
                           >
                             {statusConfig.label}
@@ -682,6 +688,17 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                         <span className="block mt-0.5">Status label is also draggable</span>
                       )}
                     </div>
+                    {/* Live position readout */}
+                    {(badgeStyle.status_overlay || 'none') !== 'none' && (() => {
+                      const sPos = badgeStyle.status_position || { x: 50, y: 50 }
+                      const rot = badgeStyle.status_rotation || 0
+                      const rotLabel = rot === 0 ? 'Horizontal' : rot === 90 ? 'Vertical ↓' : 'Vertical ↑'
+                      return (
+                        <div className="mt-1 px-2 py-1 bg-gray-800 rounded border border-gray-700 text-gray-300 font-mono text-[10px]">
+                          Status: x={sPos.x}% y={sPos.y}% • {rotLabel}
+                        </div>
+                      )
+                    })()}
                   </div>
                 </div>
 

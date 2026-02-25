@@ -555,6 +555,7 @@ class MultiRatingBadge:
         # Optional status text overlay (cancelled / renewed / current)
         status_overlay = (badge_style or {}).get('status_overlay', 'none')
         status_position = (badge_style or {}).get('status_position', 'center')
+        status_rotation = (badge_style or {}).get('status_rotation', 0)
 
         # MODE 1: Individual badges (new 4-badge system)
         if badge_positions:
@@ -582,7 +583,7 @@ class MultiRatingBadge:
                 # Composite badge onto poster
                 poster.paste(badge, (badge_x, badge_y), badge)
 
-            self._apply_status_overlay(poster, status_overlay, status_position)
+            self._apply_status_overlay(poster, status_overlay, status_position, status_rotation)
 
             # Save
             poster_rgb = poster.convert('RGB')
@@ -630,7 +631,7 @@ class MultiRatingBadge:
             # Composite badge onto poster
             poster.paste(badge, (badge_x, badge_y), badge)
 
-            self._apply_status_overlay(poster, status_overlay, status_position)
+            self._apply_status_overlay(poster, status_overlay, status_position, status_rotation)
 
             # Save
             poster_rgb = poster.convert('RGB')
@@ -642,7 +643,7 @@ class MultiRatingBadge:
 
             return poster
 
-    def _apply_status_overlay(self, poster: Image.Image, status_overlay: Optional[str], status_position = 'center'):
+    def _apply_status_overlay(self, poster: Image.Image, status_overlay: Optional[str], status_position = 'center', status_rotation: int = 0):
         """Apply a status text overlay with dark background on a poster."""
         if not status_overlay:
             return
@@ -662,11 +663,9 @@ class MultiRatingBadge:
 
         # Resolve center coordinates from position
         if isinstance(status_position, dict):
-            # {x, y} percentages from drag
             cx = int((status_position.get('x', 50) / 100) * poster_width)
             cy = int((status_position.get('y', 50) / 100) * poster_height)
         else:
-            # Legacy string positions
             margin_x = int(poster_width * 0.05)
             margin_y = int(poster_height * 0.08)
             named = {
@@ -680,8 +679,12 @@ class MultiRatingBadge:
             }
             cx, cy = named.get(status_position, named['center'])
 
-        text_layer = Image.new('RGBA', (poster_width, poster_height), (0, 0, 0, 0))
+        # Draw text + background on a separate layer, then rotate if needed
+        # Use a large square canvas so rotation doesn't clip
+        canvas_size = max(poster_width, poster_height) * 2
+        text_layer = Image.new('RGBA', (canvas_size, canvas_size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(text_layer)
+        tcx, tcy = canvas_size // 2, canvas_size // 2
 
         # Measure text for background pill
         bbox = draw.textbbox((0, 0), style['label'], font=font)
@@ -692,16 +695,16 @@ class MultiRatingBadge:
 
         # Dark background pill
         bg_rect = [
-            cx - tw // 2 - pad_x,
-            cy - th // 2 - pad_y,
-            cx + tw // 2 + pad_x,
-            cy + th // 2 + pad_y,
+            tcx - tw // 2 - pad_x,
+            tcy - th // 2 - pad_y,
+            tcx + tw // 2 + pad_x,
+            tcy + th // 2 + pad_y,
         ]
         draw.rounded_rectangle(bg_rect, radius=int(th * 0.3), fill=(0, 0, 0, 180))
 
         # Text
         draw.text(
-            (cx, cy),
+            (tcx, tcy),
             style['label'],
             font=font,
             fill=style['color'],
@@ -710,4 +713,14 @@ class MultiRatingBadge:
             stroke_fill=(0, 0, 0, 210)
         )
 
-        poster.alpha_composite(text_layer)
+        # Rotate the text layer if needed
+        rotation = int(status_rotation or 0)
+        if rotation:
+            text_layer = text_layer.rotate(-rotation, resample=Image.Resampling.BICUBIC, expand=False)
+
+        # Crop from center of large canvas and composite onto poster at (cx, cy)
+        half_w, half_h = poster_width // 2, poster_height // 2
+        left = tcx - cx
+        top = tcy - cy
+        cropped = text_layer.crop((left, top, left + poster_width, top + poster_height))
+        poster.alpha_composite(cropped)

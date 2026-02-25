@@ -1084,6 +1084,7 @@ DEFAULT_BADGE_STYLE = {
     "font_family": "DejaVu Sans Bold",
     "status_overlay": "none",
     "status_position": {"x": 50, "y": 50},
+    "status_rotation": 0,
 }
 
 DEFAULT_RATING_SOURCES = {
