@@ -142,6 +142,8 @@ class PlexPosterManager:
         has_next_episode: Optional[bool] = None
     ) -> Optional[str]:
         """Map provider status text to overlay style key."""
+        if not status_value or not status_value.strip():
+            return None
         normalized = (status_value or '').strip().lower()
 
         # 1) Explicit cancelled/ended states -> Cancelled overlay
@@ -177,68 +179,76 @@ class PlexPosterManager:
         tmdb_status: Optional[str] = None,
         imdb_id: Optional[str] = None
     ) -> Optional[str]:
-        """Resolve status overlay for a single item when status_overlay is set to 'auto'.
+        """Resolve status overlay for a single item when status_overlay is set to 'auto'."""
+        if self.library.type != 'show':
+            return None
 
-        Works for both TV shows and movies.
-        - TV: Returning Series, In Production, Ended, Canceled, Planned, Pilot
-        - Movie: In Production, Post Production, Planned, Released, Canceled, Rumored
-        - 'Released' for movies returns None (normal state, no overlay needed).
-        """
-        is_tv = self.library.type == 'show'
-        media_type = 'tv' if is_tv else 'movie'
+        title = getattr(item, 'title', 'unknown')
 
-        # 1) Try Plex metadata first (TV shows have status/showStatus)
-        if is_tv:
-            plex_status = getattr(item, 'status', None) or getattr(item, 'showStatus', None)
-            mapped = self._map_status_to_overlay(plex_status)
-            if mapped:
-                return mapped
+        # 1) Try Plex metadata first
+        plex_status = getattr(item, 'status', None) or getattr(item, 'showStatus', None)
+        if plex_status:
+            logger.debug(f"Status resolve '{title}': Plex status = '{plex_status}'")
+        mapped = self._map_status_to_overlay(plex_status)
+        if mapped:
+            return mapped
 
         # 2) Use already-fetched TMDB status if available
+        if tmdb_status:
+            logger.debug(f"Status resolve '{title}': pre-fetched TMDB status = '{tmdb_status}'")
         mapped = self._map_status_to_overlay(tmdb_status)
         if mapped:
             return mapped
 
         # 3) Fallback TMDB lookup for status only
         if tmdb_id:
-            rating_data = self.rating_fetcher.fetch_tmdb_rating(tmdb_id, media_type=media_type)
+            rating_data = self.rating_fetcher.fetch_tmdb_rating(tmdb_id, media_type='tv')
             if rating_data:
+                fetched_status = rating_data.get('status')
+                in_prod = rating_data.get('in_production')
+                next_ep = bool(rating_data.get('next_episode_to_air'))
+                logger.debug(f"Status resolve '{title}': TMDB id={tmdb_id} status='{fetched_status}' in_production={in_prod} next_ep={next_ep}")
                 mapped = self._map_status_to_overlay(
-                    rating_data.get('status'),
-                    in_production=rating_data.get('in_production'),
-                    has_next_episode=bool(rating_data.get('next_episode_to_air'))
+                    fetched_status,
+                    in_production=in_prod,
+                    has_next_episode=next_ep
                 )
                 if mapped:
                     return mapped
 
-        # TV-only fallbacks (IMDb cross-ref and title search)
-        if is_tv:
-            # 4) Resolve TMDB TV status via IMDb ID (common when Plex has IMDb GUID but no TMDB GUID)
-            if imdb_id:
-                imdb_tmdb_data = self.rating_fetcher.fetch_tmdb_tv_status_by_imdb_id(imdb_id)
-                if imdb_tmdb_data:
-                    mapped = self._map_status_to_overlay(
-                        imdb_tmdb_data.get('status'),
-                        in_production=imdb_tmdb_data.get('in_production'),
-                        has_next_episode=bool(imdb_tmdb_data.get('next_episode_to_air'))
-                    )
-                    if mapped:
-                        return mapped
-
-            # 5) Last fallback: TMDB title search
-            title = getattr(item, 'title', None)
-            year = getattr(item, 'year', None)
-            title_tmdb_data = self.rating_fetcher.fetch_tmdb_tv_status_by_title(title, year=year)
-            if title_tmdb_data:
+        # 4) Resolve TMDB TV status via IMDb ID (common when Plex has IMDb GUID but no TMDB GUID)
+        if imdb_id:
+            imdb_tmdb_data = self.rating_fetcher.fetch_tmdb_tv_status_by_imdb_id(imdb_id)
+            if imdb_tmdb_data:
+                fetched_status = imdb_tmdb_data.get('status')
+                in_prod = imdb_tmdb_data.get('in_production')
+                next_ep = bool(imdb_tmdb_data.get('next_episode_to_air'))
+                logger.debug(f"Status resolve '{title}': TMDB-via-IMDb({imdb_id}) status='{fetched_status}' in_production={in_prod} next_ep={next_ep}")
                 mapped = self._map_status_to_overlay(
-                    title_tmdb_data.get('status'),
-                    in_production=title_tmdb_data.get('in_production'),
-                    has_next_episode=bool(title_tmdb_data.get('next_episode_to_air'))
+                    fetched_status,
+                    in_production=in_prod,
+                    has_next_episode=next_ep
                 )
                 if mapped:
                     return mapped
 
-        logger.info(f"Auto status unresolved for '{getattr(item, 'title', 'unknown')}'")
+        # 5) Last fallback: TMDB title search
+        year = getattr(item, 'year', None)
+        title_tmdb_data = self.rating_fetcher.fetch_tmdb_tv_status_by_title(title, year=year)
+        if title_tmdb_data:
+            fetched_status = title_tmdb_data.get('status')
+            in_prod = title_tmdb_data.get('in_production')
+            next_ep = bool(title_tmdb_data.get('next_episode_to_air'))
+            logger.debug(f"Status resolve '{title}': TMDB-title-search status='{fetched_status}' in_production={in_prod} next_ep={next_ep}")
+            mapped = self._map_status_to_overlay(
+                fetched_status,
+                in_production=in_prod,
+                has_next_episode=bool(title_tmdb_data.get('next_episode_to_air'))
+            )
+            if mapped:
+                return mapped
+
+        logger.info(f"Auto status unresolved for '{title}' (tmdb_id={tmdb_id}, imdb_id={imdb_id})")
 
         return None
 
@@ -302,15 +312,15 @@ class PlexPosterManager:
             # Use Plex's TMDB rating if available
             if 'tmdb' in plex_ratings:
                 ratings['tmdb'] = plex_ratings['tmdb']
-            elif tmdb_id:  # Only try TMDB API if we have a TMDB ID
-                # PRIORITY 2: Fall back to TMDB API only if Plex doesn't have it
-                # Determine media type (movie vs TV show)
+
+            # Always fetch TMDB data when we have a TMDB ID (needed for status resolution)
+            if tmdb_id:
                 media_type = 'tv' if self.library.type == 'show' else 'movie'
                 rating_data = self.rating_fetcher.fetch_tmdb_rating(tmdb_id, media_type=media_type)
                 if rating_data:
                     tmdb_status = rating_data.get('status')
 
-                if rating_data and rating_data.get('rating', 0) > 0:
+                if rating_data and 'tmdb' not in ratings and rating_data.get('rating', 0) > 0:
                     ratings['tmdb'] = rating_data['rating']
                 # Don't fail here - continue to check other rating sources
 

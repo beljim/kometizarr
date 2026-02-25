@@ -566,10 +566,13 @@ async def preview_posters(request: PreviewRequest):
 
                 # Priority 2: API fallback for missing ratings
                 media_type = 'tv' if manager.library.type == 'show' else 'movie'
-                if 'tmdb' not in ratings and tmdb_id:
+                tmdb_status = None
+                if tmdb_id:
                     tmdb_data = manager.rating_fetcher.fetch_tmdb_rating(tmdb_id, media_type=media_type)
-                    if tmdb_data and tmdb_data.get('rating', 0) > 0:
-                        ratings['tmdb'] = tmdb_data['rating']
+                    if tmdb_data:
+                        tmdb_status = tmdb_data.get('status')
+                        if 'tmdb' not in ratings and tmdb_data.get('rating', 0) > 0:
+                            ratings['tmdb'] = tmdb_data['rating']
 
                 if imdb_id:
                     if 'imdb' not in ratings:
@@ -617,8 +620,9 @@ async def preview_posters(request: PreviewRequest):
 
                 # Apply overlay (no upload)
                 output_path = f'/tmp/kometizarr_prev_{item.ratingKey}.jpg'
-                effective_badge_style = manager._build_effective_badge_style(item, tmdb_id=tmdb_id)
+                effective_badge_style = manager._build_effective_badge_style(item, tmdb_id=tmdb_id, tmdb_status=tmdb_status)
                 applied_status_overlay = effective_badge_style.get('status_overlay', 'none')
+                logger.info(f"Preview '{item.title}': tmdb_id={tmdb_id}, imdb_id={imdb_id}, status_overlay={applied_status_overlay}")
                 manager.multi_rating_badge.apply_to_poster(
                     poster_path=str(poster_path),
                     ratings=ratings,
