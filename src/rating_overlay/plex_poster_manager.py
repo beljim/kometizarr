@@ -146,10 +146,15 @@ class PlexPosterManager:
             return None
         normalized = (status_value or '').strip().lower()
 
-        # 1) Explicit cancelled/ended states -> Cancelled overlay
-        cancelled_tokens = ['cancel', 'cancelled', 'canceled', 'ended', 'end']
+        # 1) Explicit cancelled states -> Cancelled overlay
+        cancelled_tokens = ['cancel', 'cancelled', 'canceled']
         if any(token in normalized for token in cancelled_tokens):
             return 'cancelled'
+
+        # 2) Explicit ended states -> Ended overlay
+        ended_tokens = ['ended', 'end']
+        if any(token in normalized for token in ended_tokens):
+            return 'ended'
 
         # 2) Explicit renewed/returning states -> Renewed overlay
         renewed_tokens = ['renew', 'returning series', 'returning', 'coming back']

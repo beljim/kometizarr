@@ -523,6 +523,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                       const statusMap = {
                         auto: { label: 'AUTO', color: '#9ca3af' },
                         cancelled: { label: 'CANCELLED', color: '#dc2626' },
+                        ended: { label: 'ENDED', color: '#f97316' },
                         renewed: { label: 'RENEWED', color: '#22c55e' },
                         current: { label: 'CURRENT', color: '#3b82f6' }
                       }
@@ -842,11 +843,12 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                       <option value="auto">Auto (per item)</option>
                       <option value="current">Current</option>
                       <option value="renewed">Renewed</option>
+                      <option value="ended">Ended</option>
                       <option value="cancelled">Cancelled</option>
                     </select>
                     <div className="mt-2 p-2 bg-gray-800/60 border border-gray-700 rounded text-xs text-gray-400 leading-relaxed">
                       <span className="text-gray-300 font-medium">Auto mode:</span> TV libraries only. Uses Plex status first, then TMDB fallback.
-                      <span className="block mt-1">Mapped values: cancelled/ended → <span className="text-red-400">Cancelled</span>, renewed/returning → <span className="text-green-400">Renewed</span>, in production/continuing/current/running/planned/pilot → <span className="text-blue-400">Current</span>. Unknown status = no stamp.</span>
+                      <span className="block mt-1">Mapped values: cancelled → <span className="text-red-400">Cancelled</span>, ended → <span className="text-orange-400">Ended</span>, renewed/returning → <span className="text-green-400">Renewed</span>, in production/continuing/current/running/planned/pilot → <span className="text-blue-400">Current</span>. Unknown status = no stamp.</span>
                     </div>
                   </div>
 

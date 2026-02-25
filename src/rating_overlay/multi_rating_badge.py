@@ -30,6 +30,7 @@ class MultiRatingBadge:
 
     STATUS_STYLES = {
         'cancelled': {'label': 'CANCELLED', 'color': (220, 38, 38, 180)},
+        'ended': {'label': 'ENDED', 'color': (249, 115, 22, 255)},
         'renewed': {'label': 'RENEWED', 'color': (34, 197, 94, 180)},
         'current': {'label': 'CURRENT', 'color': (59, 130, 246, 255)},
     }
