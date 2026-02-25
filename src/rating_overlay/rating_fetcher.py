@@ -22,13 +22,33 @@ class RatingFetcher:
         Initialize rating fetcher
 
         Args:
-            tmdb_api_key: TMDB API key (required)
+            tmdb_api_key: TMDB API key or v4 Read Access Token (required)
             omdb_api_key: OMDb API key (optional, for IMDb/RT ratings)
             mdblist_api_key: MDBList API key (optional, for RT audience scores)
         """
-        self.tmdb_api_key = tmdb_api_key
         self.omdb_api_key = omdb_api_key
         self.mdblist_api_key = mdblist_api_key
+
+        # Auto-detect whether the user supplied a v3 API key or a v4 Bearer token
+        if tmdb_api_key and tmdb_api_key.startswith("eyJ"):
+            # JWT / v4 Read Access Token → use Authorization header
+            self.tmdb_api_key = None
+            self._tmdb_headers = {
+                "Authorization": f"Bearer {tmdb_api_key}",
+                "accept": "application/json",
+            }
+        else:
+            self.tmdb_api_key = tmdb_api_key
+            self._tmdb_headers = {}
+
+    # ── helper for all TMDB requests ──────────────────────────────
+    def _tmdb_get(self, path: str, extra_params: Optional[Dict] = None) -> requests.Response:
+        """Make a GET to TMDB using whichever auth method was configured."""
+        url = f"{self.TMDB_BASE_URL}/{path}"
+        params = dict(extra_params or {})
+        if self.tmdb_api_key:
+            params["api_key"] = self.tmdb_api_key
+        return requests.get(url, params=params, headers=self._tmdb_headers, timeout=self.REQUEST_TIMEOUT)
 
     def fetch_tmdb_rating(self, tmdb_id: int, media_type: str = 'movie') -> Optional[Dict]:
         """
@@ -41,11 +61,8 @@ class RatingFetcher:
         Returns:
             Dict with rating, vote_count, and title, or None if error
         """
-        endpoint = f"{media_type}/{tmdb_id}"
-        url = f"{self.TMDB_BASE_URL}/{endpoint}?api_key={self.tmdb_api_key}"
-
         try:
-            response = requests.get(url, timeout=self.REQUEST_TIMEOUT)
+            response = self._tmdb_get(f"{media_type}/{tmdb_id}")
             response.raise_for_status()
             data = response.json()
 
@@ -78,10 +95,8 @@ class RatingFetcher:
         Returns:
             Dict with rating and vote_count, or None if error
         """
-        url = f"{self.TMDB_BASE_URL}/tv/{tmdb_id}/season/{season}/episode/{episode}?api_key={self.tmdb_api_key}"
-
         try:
-            response = requests.get(url, timeout=self.REQUEST_TIMEOUT)
+            response = self._tmdb_get(f"tv/{tmdb_id}/season/{season}/episode/{episode}")
             response.raise_for_status()
             data = response.json()
 
@@ -185,10 +200,8 @@ class RatingFetcher:
         if not imdb_id:
             return None
 
-        url = f"{self.TMDB_BASE_URL}/find/{imdb_id}?api_key={self.tmdb_api_key}&external_source=imdb_id"
-
         try:
-            response = requests.get(url, timeout=self.REQUEST_TIMEOUT)
+            response = self._tmdb_get(f"find/{imdb_id}", {"external_source": "imdb_id"})
             response.raise_for_status()
             data = response.json()
             tv_results = data.get('tv_results', [])
@@ -215,17 +228,14 @@ class RatingFetcher:
             return None
 
         params = {
-            'api_key': self.tmdb_api_key,
             'query': title,
             'include_adult': 'false',
         }
         if year:
             params['first_air_date_year'] = str(year)
 
-        url = f"{self.TMDB_BASE_URL}/search/tv"
-
         try:
-            response = requests.get(url, params=params, timeout=self.REQUEST_TIMEOUT)
+            response = self._tmdb_get("search/tv", params)
             response.raise_for_status()
             data = response.json()
             results = data.get('results', [])

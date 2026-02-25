@@ -18,9 +18,26 @@ class TMDBHelper:
         Initialize TMDB helper
 
         Args:
-            api_key: TMDB API key
+            api_key: TMDB API key or v4 Read Access Token
         """
-        self.api_key = api_key
+        # Auto-detect v3 key vs v4 Bearer token
+        if api_key and api_key.startswith("eyJ"):
+            self.api_key = None
+            self._headers = {
+                "Authorization": f"Bearer {api_key}",
+                "accept": "application/json",
+            }
+        else:
+            self.api_key = api_key
+            self._headers = {}
+
+    def _get(self, path: str, extra_params: Optional[Dict] = None) -> requests.Response:
+        """Make a GET to TMDB with the correct auth method."""
+        url = f"{self.BASE_URL}/{path}"
+        params = dict(extra_params or {})
+        if self.api_key:
+            params["api_key"] = self.api_key
+        return requests.get(url, params=params, headers=self._headers)
 
     def get_movies_by_keyword(self, keyword_id: int, limit: int = 500) -> List[int]:
         """
@@ -37,16 +54,14 @@ class TMDBHelper:
         page = 1
 
         while len(movie_ids) < limit:
-            url = f"{self.BASE_URL}/discover/movie"
             params = {
-                "api_key": self.api_key,
                 "with_keywords": keyword_id,
                 "page": page,
                 "sort_by": "popularity.desc"
             }
 
             try:
-                response = requests.get(url, params=params)
+                response = self._get("discover/movie", params)
                 response.raise_for_status()
                 data = response.json()
 
@@ -83,16 +98,14 @@ class TMDBHelper:
         page = 1
 
         while len(tv_ids) < limit:
-            url = f"{self.BASE_URL}/discover/tv"
             params = {
-                "api_key": self.api_key,
                 "with_keywords": keyword_id,
                 "page": page,
                 "sort_by": "popularity.desc"
             }
 
             try:
-                response = requests.get(url, params=params)
+                response = self._get("discover/tv", params)
                 response.raise_for_status()
                 data = response.json()
 
@@ -124,11 +137,8 @@ class TMDBHelper:
         Returns:
             List of TMDB movie IDs
         """
-        url = f"{self.BASE_URL}/collection/{collection_id}"
-        params = {"api_key": self.api_key}
-
         try:
-            response = requests.get(url, params=params)
+            response = self._get(f"collection/{collection_id}")
             response.raise_for_status()
             data = response.json()
 
@@ -149,14 +159,12 @@ class TMDBHelper:
         Returns:
             Keyword ID or None if not found
         """
-        url = f"{self.BASE_URL}/search/keyword"
         params = {
-            "api_key": self.api_key,
             "query": keyword_name
         }
 
         try:
-            response = requests.get(url, params=params)
+            response = self._get("search/keyword", params)
             response.raise_for_status()
             data = response.json()
 
