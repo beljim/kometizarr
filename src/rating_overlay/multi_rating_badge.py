@@ -31,7 +31,7 @@ class MultiRatingBadge:
     STATUS_STYLES = {
         'cancelled': {'label': 'CANCELLED', 'color': (220, 38, 38, 180)},
         'renewed': {'label': 'RENEWED', 'color': (34, 197, 94, 180)},
-        'current': {'label': 'CURRENT', 'color': (59, 130, 246, 180)},
+        'current': {'label': 'CURRENT', 'color': (59, 130, 246, 255)},
     }
 
     def __init__(self, assets_dir: str = None):

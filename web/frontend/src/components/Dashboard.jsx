@@ -104,7 +104,15 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
         setLibraries(data.libraries)
         if (data.libraries.length > 0) {
           setSelectedLibrary(data.libraries[0])
-          setSelectedLibraries(data.libraries.map(l => l.name)) // select all by default
+          // Restore previously selected libraries from localStorage
+          const saved = localStorage.getItem('kometizarr_selected_libraries')
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved)
+              const valid = parsed.filter(n => data.libraries.some(l => l.name === n))
+              setSelectedLibraries(valid)
+            } catch { setSelectedLibraries([]) }
+          }
         }
       }
     } catch (error) {
@@ -126,9 +134,11 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
 
   const toggleLibrarySelection = (lib) => {
     setSelectedLibrary(lib) // always update stats to last-clicked
-    setSelectedLibraries(prev =>
-      prev.includes(lib.name) ? prev.filter(n => n !== lib.name) : [...prev, lib.name]
-    )
+    setSelectedLibraries(prev => {
+      const next = prev.includes(lib.name) ? prev.filter(n => n !== lib.name) : [...prev, lib.name]
+      localStorage.setItem('kometizarr_selected_libraries', JSON.stringify(next))
+      return next
+    })
     if (onLibrarySelect) onLibrarySelect(lib)
   }
 
@@ -414,9 +424,11 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
           {libraries.length > 1 && (
             <button
               onClick={() =>
-                setSelectedLibraries(
-                  selectedLibraries.length === libraries.length ? [] : libraries.map(l => l.name)
-                )
+                {
+                  const next = selectedLibraries.length === libraries.length ? [] : libraries.map(l => l.name)
+                  setSelectedLibraries(next)
+                  localStorage.setItem('kometizarr_selected_libraries', JSON.stringify(next))
+                }
               }
               className="text-xs text-gray-400 hover:text-gray-200 transition"
             >
@@ -837,6 +849,24 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                       <span className="block mt-1">Mapped values: cancelled → <span className="text-red-400">Cancelled</span>, renewed → <span className="text-green-400">Renewed</span>, returning/continuing/in production/current/running/planned/pilot → <span className="text-blue-400">Current</span>. Unknown status = no stamp.</span>
                     </div>
                   </div>
+
+                  {/* Text Direction (rotation) — only show when status overlay is active */}
+                  {badgeStyle.status_overlay && badgeStyle.status_overlay !== 'none' && (
+                    <div>
+                      <label className="text-xs text-gray-400 block mb-1">
+                        Text Direction
+                      </label>
+                      <select
+                        value={badgeStyle.status_rotation || 0}
+                        onChange={(e) => updateBadgeStyle('status_rotation', Number(e.target.value))}
+                        className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white"
+                      >
+                        <option value={0}>Horizontal</option>
+                        <option value={90}>Vertical ↓</option>
+                        <option value={-90}>Vertical ↑</option>
+                      </select>
+                    </div>
+                  )}
 
                   {/* Reset Button */}
                   <button
