@@ -8,7 +8,7 @@ const DEFAULT_BADGE_STYLE = {
   background_opacity: 128,    // 0-255, default 128 (50%)
   font_family: 'DejaVu Sans Bold',  // Font family
   status_overlay: 'none', // none | auto | current | renewed | cancelled
-  status_position: 'center' // center | top | bottom | top-left | top-right | bottom-left | bottom-right
+  status_position: { x: 50, y: 50 } // {x, y} percentage — draggable like badges
 }
 
 function Dashboard({ onStartProcessing, onLibrarySelect }) {
@@ -149,7 +149,25 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
     if (!activeDragBadge && !badgeSource) return  // Not dragging
 
     const source = badgeSource || activeDragBadge
-    if (!source || !ratingSources[source]) return  // Badge not enabled
+    if (!source) return
+
+    // Status overlay drag — store position in badgeStyle
+    if (source === 'status') {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const clickX = e.clientX - rect.left
+      const clickY = e.clientY - rect.top
+      let xPercent = (clickX / rect.width) * 100
+      let yPercent = (clickY / rect.height) * 100
+      xPercent = Math.max(2, Math.min(xPercent, 98))
+      yPercent = Math.max(2, Math.min(yPercent, 98))
+      const newPos = { x: Math.round(xPercent), y: Math.round(yPercent) }
+      const updated = { ...badgeStyle, status_position: newPos }
+      setBadgeStyle(updated)
+      localStorage.setItem('kometizarr_badge_style', JSON.stringify(updated))
+      return
+    }
+
+    if (!ratingSources[source]) return  // Badge not enabled
 
     const rect = e.currentTarget.getBoundingClientRect()
     const clickX = e.clientX - rect.left
@@ -253,8 +271,14 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
 
   const handleMouseUp = () => {
     if (activeDragBadge) {
-      // Save final drag position to server (use ref to get latest state)
-      persistBadgeSettings({ badge_positions: badgePositionsRef.current })
+      if (activeDragBadge === 'status') {
+        // Persist status position from latest badgeStyle
+        const latestStyle = JSON.parse(localStorage.getItem('kometizarr_badge_style') || '{}')
+        persistBadgeSettings({ badge_style: latestStyle })
+      } else {
+        // Save final drag position to server (use ref to get latest state)
+        persistBadgeSettings({ badge_positions: badgePositionsRef.current })
+      }
     }
     setActiveDragBadge(null)
     setAlignmentGuides([])  // Clear alignment guides
@@ -478,7 +502,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                     {/* Poster Background */}
                     <rect x="0" y="0" width="120" height="168" fill="#1f2937" stroke="#4b5563" strokeWidth="2" rx="3" />
 
-                    {/* Status Overlay Preview */}
+                    {/* Status Overlay Preview — draggable */}
                     {(() => {
                       const status = badgeStyle.status_overlay || 'none'
                       if (status === 'none') return null
@@ -493,32 +517,37 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                       const statusConfig = statusMap[status]
                       if (!statusConfig) return null
 
-                      const pos = badgeStyle.status_position || 'center'
-                      const posCoords = {
-                        'center':       { x: 60, y: 84, anchor: 'middle', baseline: 'middle' },
-                        'top':          { x: 60, y: 14, anchor: 'middle', baseline: 'hanging' },
-                        'bottom':       { x: 60, y: 154, anchor: 'middle', baseline: 'auto' },
-                        'top-left':     { x: 6, y: 14, anchor: 'start', baseline: 'hanging' },
-                        'top-right':    { x: 114, y: 14, anchor: 'end', baseline: 'hanging' },
-                        'bottom-left':  { x: 6, y: 154, anchor: 'start', baseline: 'auto' },
-                        'bottom-right': { x: 114, y: 154, anchor: 'end', baseline: 'auto' },
-                      }
-                      const { x, y, anchor, baseline } = posCoords[pos] || posCoords['center']
-                      const rotation = pos === 'center' ? `rotate(-24 ${x} ${y})` : ''
+                      const sPos = badgeStyle.status_position || { x: 50, y: 50 }
+                      const sx = typeof sPos === 'object' ? (sPos.x / 100) * 120 : 60
+                      const sy = typeof sPos === 'object' ? (sPos.y / 100) * 168 : 84
+
+                      const labelLen = statusConfig.label.length
+                      const bgW = Math.max(labelLen * 7.5 + 6, 40)
+                      const bgH = 16
 
                       return (
-                        <g className="pointer-events-none select-none" transform={rotation}>
+                        <g
+                          className="cursor-move"
+                          onMouseDown={(e) => handleBadgeMouseDown(e, 'status')}
+                        >
+                          <rect
+                            x={sx - bgW / 2}
+                            y={sy - bgH / 2}
+                            width={bgW}
+                            height={bgH}
+                            fill="#000"
+                            fillOpacity="0.7"
+                            rx="3"
+                          />
                           <text
-                            x={x}
-                            y={y}
-                            fontSize="13"
+                            x={sx}
+                            y={sy}
+                            fontSize="11"
                             fontWeight="700"
                             fill={statusConfig.color}
-                            stroke="#000"
-                            strokeWidth="1.5"
-                            textAnchor={anchor}
-                            dominantBaseline={baseline}
-                            opacity="0.85"
+                            textAnchor="middle"
+                            dominantBaseline="central"
+                            className="pointer-events-none select-none"
                           >
                             {statusConfig.label}
                           </text>
@@ -649,6 +678,9 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                     <p className="font-medium">💡 Drag badges to position</p>
                     <div className="text-gray-400 leading-relaxed">
                       <span className="font-bold text-white">T</span>=<span className="font-bold">TMDB</span> • <span className="font-bold text-white">I</span>=<span className="font-bold">IMDb</span> • <span className="font-bold text-white">C</span>=<span className="font-bold">RT Critic</span> • <span className="font-bold text-white">A</span>=<span className="font-bold">RT Audience</span>
+                      {(badgeStyle.status_overlay || 'none') !== 'none' && (
+                        <span className="block mt-0.5">Status label is also draggable</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -788,28 +820,6 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                       <span className="block mt-1">Mapped values: cancelled → <span className="text-red-400">Cancelled</span>, renewed → <span className="text-green-400">Renewed</span>, returning/continuing/in production/current/running/planned/pilot → <span className="text-blue-400">Current</span>. Unknown status = no stamp.</span>
                     </div>
                   </div>
-
-                  {/* Status Position */}
-                  {(badgeStyle.status_overlay || 'none') !== 'none' && (
-                    <div>
-                      <label className="text-xs text-gray-400 block mb-1">
-                        Status Position
-                      </label>
-                      <select
-                        value={badgeStyle.status_position || 'center'}
-                        onChange={(e) => updateBadgeStyle('status_position', e.target.value)}
-                        className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white"
-                      >
-                        <option value="center">Center (diagonal)</option>
-                        <option value="top">Top</option>
-                        <option value="bottom">Bottom</option>
-                        <option value="top-left">Top Left</option>
-                        <option value="top-right">Top Right</option>
-                        <option value="bottom-left">Bottom Left</option>
-                        <option value="bottom-right">Bottom Right</option>
-                      </select>
-                    </div>
-                  )}
 
                   {/* Reset Button */}
                   <button

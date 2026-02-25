@@ -642,8 +642,8 @@ class MultiRatingBadge:
 
             return poster
 
-    def _apply_status_overlay(self, poster: Image.Image, status_overlay: Optional[str], status_position: str = 'center'):
-        """Apply a status text overlay on a poster at the specified position."""
+    def _apply_status_overlay(self, poster: Image.Image, status_overlay: Optional[str], status_position = 'center'):
+        """Apply a status text overlay with dark background on a poster."""
         if not status_overlay:
             return
 
@@ -653,43 +653,61 @@ class MultiRatingBadge:
 
         style = self.STATUS_STYLES[status_key]
         poster_width, poster_height = poster.size
-        font_size = max(24, int(min(poster_width, poster_height) * 0.16))
+        font_size = max(24, int(min(poster_width, poster_height) * 0.12))
 
         try:
             font = ImageFont.truetype(self.FONT_PATHS['DejaVu Sans Bold'], font_size)
         except Exception:
             font = ImageFont.load_default()
 
+        # Resolve center coordinates from position
+        if isinstance(status_position, dict):
+            # {x, y} percentages from drag
+            cx = int((status_position.get('x', 50) / 100) * poster_width)
+            cy = int((status_position.get('y', 50) / 100) * poster_height)
+        else:
+            # Legacy string positions
+            margin_x = int(poster_width * 0.05)
+            margin_y = int(poster_height * 0.08)
+            named = {
+                'center':       (poster_width // 2, poster_height // 2),
+                'top':          (poster_width // 2, margin_y),
+                'bottom':       (poster_width // 2, poster_height - margin_y),
+                'top-left':     (margin_x, margin_y),
+                'top-right':    (poster_width - margin_x, margin_y),
+                'bottom-left':  (margin_x, poster_height - margin_y),
+                'bottom-right': (poster_width - margin_x, poster_height - margin_y),
+            }
+            cx, cy = named.get(status_position, named['center'])
+
         text_layer = Image.new('RGBA', (poster_width, poster_height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(text_layer)
 
-        # Position mapping (percentage of poster dimensions)
-        margin_x = int(poster_width * 0.05)
-        margin_y = int(poster_height * 0.08)
-        positions = {
-            'center':       (poster_width // 2, poster_height // 2, 'mm'),
-            'top':          (poster_width // 2, margin_y, 'mt'),
-            'bottom':       (poster_width // 2, poster_height - margin_y, 'mb'),
-            'top-left':     (margin_x, margin_y, 'lt'),
-            'top-right':    (poster_width - margin_x, margin_y, 'rt'),
-            'bottom-left':  (margin_x, poster_height - margin_y, 'lb'),
-            'bottom-right': (poster_width - margin_x, poster_height - margin_y, 'rb'),
-        }
-        x, y, anchor = positions.get(status_position, positions['center'])
-        rotation = -24 if status_position == 'center' else 0
+        # Measure text for background pill
+        bbox = draw.textbbox((0, 0), style['label'], font=font)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+        pad_x = int(tw * 0.25)
+        pad_y = int(th * 0.35)
 
+        # Dark background pill
+        bg_rect = [
+            cx - tw // 2 - pad_x,
+            cy - th // 2 - pad_y,
+            cx + tw // 2 + pad_x,
+            cy + th // 2 + pad_y,
+        ]
+        draw.rounded_rectangle(bg_rect, radius=int(th * 0.3), fill=(0, 0, 0, 180))
+
+        # Text
         draw.text(
-            (x, y),
+            (cx, cy),
             style['label'],
             font=font,
             fill=style['color'],
-            anchor=anchor,
-            stroke_width=max(2, int(font_size * 0.04)),
+            anchor='mm',
+            stroke_width=max(1, int(font_size * 0.03)),
             stroke_fill=(0, 0, 0, 210)
         )
 
-        if rotation:
-            rotated = text_layer.rotate(rotation, resample=Image.Resampling.BICUBIC, expand=False)
-            poster.alpha_composite(rotated)
-        else:
-            poster.alpha_composite(text_layer)
+        poster.alpha_composite(text_layer)
