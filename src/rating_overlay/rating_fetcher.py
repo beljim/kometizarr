@@ -208,7 +208,7 @@ class RatingFetcher:
             print(f"✗ Error resolving TMDB TV status by IMDb ID: {e}")
             return None
 
-    def fetch_tmdb_tv_status_by_title(self, title: str, year: Optional[int] = None) -> Optional[Dict]:
+    def fetch_tmdb_tv_status_by_title(self, title: Optional[str], year: Optional[int] = None) -> Optional[Dict]:
         """Resolve TMDB TV status by title search as a last fallback."""
         if not title:
             return None
@@ -219,7 +219,7 @@ class RatingFetcher:
             'include_adult': 'false',
         }
         if year:
-            params['first_air_date_year'] = year
+            params['first_air_date_year'] = str(year)
 
         url = f"{self.TMDB_BASE_URL}/search/tv"
 
