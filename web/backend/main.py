@@ -1064,6 +1064,7 @@ async def _webhook_queue_worker():
             await process_library_background(ProcessRequest(
                 library_name=library_name,
                 rating_key=rating_key,
+                force=True,  # Always apply overlay for webhook items
                 badge_style=badge_style,
                 badge_positions=badge_positions,
                 rating_sources=rating_sources,
@@ -1227,45 +1228,64 @@ async def delete_backups(library_name: str, confirm: str = ""):
 
 # ── Plex Webhook ──────────────────────────────────────────────────────────────
 
-from fastapi import Form as FastAPIForm
+from fastapi import Form as FastAPIForm, Request as FastAPIRequest
 
 
 @app.post("/webhook/plex")
-async def plex_webhook(payload: str = FastAPIForm(...)):
-    """Receive Plex webhooks — triggers processing on library.new events."""
+async def plex_webhook(request: FastAPIRequest):
+    """Receive Plex webhooks — triggers processing on library.new events.
+
+    Supports two formats:
+    - Plex native: multipart/form-data with a 'payload' field containing JSON
+    - Tautulli / JSON clients: application/json body
+    """
     try:
-        data = json.loads(payload)
+        content_type = request.headers.get("content-type", "")
+
+        if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
+            form = await request.form()
+            raw = form.get("payload", "{}")
+            data = json.loads(raw)
+        else:
+            body = await request.body()
+            data = json.loads(body) if body else {}
+
         event = data.get("event", "")
-        logger.info(f"Plex webhook: {event}")
+        logger.info(f"Plex webhook received: event={event}")
 
-        if event == "library.new":
-            settings = _load_settings()
-            webhook = settings.get("webhook", {})
-            if not webhook.get("enabled"):
-                return {"status": "ignored", "reason": "webhook disabled"}
+        if event != "library.new":
+            return {"status": "ignored", "reason": f"unhandled event: {event}"}
 
-            metadata = data.get("Metadata", {})
-            target_library = metadata.get("librarySectionTitle")
-            if not target_library:
-                return {"status": "ignored", "reason": "could not determine library from event"}
+        settings = _load_settings()
+        webhook = settings.get("webhook", {})
+        if not webhook.get("enabled"):
+            logger.info("Webhook ignored: disabled in settings")
+            return {"status": "ignored", "reason": "webhook disabled"}
 
-            # If libraries list is non-empty, only process the listed libraries
-            allowed = webhook.get("libraries", [])
-            if allowed and target_library not in allowed:
-                return {"status": "ignored", "reason": f"library {target_library!r} not in webhook scope"}
+        metadata = data.get("Metadata", {})
+        target_library = metadata.get("librarySectionTitle")
+        if not target_library:
+            logger.warning("Webhook ignored: no librarySectionTitle in metadata")
+            return {"status": "ignored", "reason": "could not determine library from event"}
 
-            rating_key = str(metadata.get("ratingKey", "")) or None
-            item_title = metadata.get("title", "unknown")
+        # If libraries list is non-empty, only process the listed libraries
+        allowed = webhook.get("libraries", [])
+        if allowed and target_library not in allowed:
+            logger.info(f"Webhook ignored: library {target_library!r} not in scope {allowed}")
+            return {"status": "ignored", "reason": f"library {target_library!r} not in webhook scope"}
 
-            # Enqueue — worker processes items sequentially, no drops on bulk imports
-            await webhook_queue.put((target_library, rating_key, item_title))
-            queue_size = webhook_queue.qsize()
-            logger.info(f"Webhook queued: {target_library} / {item_title} (key={rating_key}, queue={queue_size})")
-            return {"status": "queued", "library": target_library, "item": item_title, "queue_size": queue_size}
+        rating_key = str(metadata.get("ratingKey", "")) or None
+        item_title = metadata.get("title", "unknown")
+
+        # Enqueue — worker processes items sequentially, no drops on bulk imports
+        await webhook_queue.put((target_library, rating_key, item_title))
+        queue_size = webhook_queue.qsize()
+        logger.info(f"Webhook queued: {target_library} / {item_title} (key={rating_key}, queue={queue_size})")
+        return {"status": "queued", "library": target_library, "item": item_title, "queue_size": queue_size}
 
     except Exception as e:
-        logger.error(f"Webhook error: {e}")
-    return {"status": "ok"}
+        logger.error(f"Webhook error: {e}", exc_info=True)
+        return {"status": "error", "reason": str(e)}
 
 
 if __name__ == "__main__":

@@ -317,7 +317,7 @@ export default function Settings() {
     setDeleteResult(data)
   }
 
-  const webhookUrl = `${window.location.protocol}//${window.location.hostname}:8000/webhook/plex`
+  const webhookUrl = `${window.location.protocol}//${window.location.host}/webhook/plex`
   const [copied, setCopied] = useState(false)
   const copyWebhookUrl = () => {
     if (navigator.clipboard) {
