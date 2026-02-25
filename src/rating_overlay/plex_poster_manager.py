@@ -135,23 +135,37 @@ class PlexPosterManager:
 
         return plex_ratings
 
-    def _map_status_to_overlay(self, status_value: Optional[str]) -> Optional[str]:
+    def _map_status_to_overlay(
+        self,
+        status_value: Optional[str],
+        in_production: Optional[bool] = None,
+        has_next_episode: Optional[bool] = None
+    ) -> Optional[str]:
         """Map provider status text to overlay style key."""
-        if not status_value:
-            return None
+        normalized = (status_value or '').strip().lower()
 
-        normalized = status_value.strip().lower()
-
-        if 'cancel' in normalized:
+        # 1) Explicit cancelled/ended states -> Cancelled overlay
+        cancelled_tokens = ['cancel', 'cancelled', 'canceled', 'ended', 'end']
+        if any(token in normalized for token in cancelled_tokens):
             return 'cancelled'
-        if 'renew' in normalized:
+
+        # 2) Explicit renewed/returning states -> Renewed overlay
+        renewed_tokens = ['renew', 'returning series', 'returning', 'coming back']
+        if any(token in normalized for token in renewed_tokens):
             return 'renewed'
 
+        # 3) Explicit current/live production states -> Current overlay
         current_tokens = [
-            'returning', 'continuing', 'in production',
-            'current', 'running', 'planned', 'pilot'
+            'in production', 'continuing', 'current', 'running',
+            'airing', 'planned', 'pilot', 'production'
         ]
         if any(token in normalized for token in current_tokens):
+            return 'current'
+
+        # 4) Metadata hints when status text is weak/missing
+        if has_next_episode:
+            return 'renewed'
+        if in_production is True:
             return 'current'
 
         return None
@@ -176,7 +190,11 @@ class PlexPosterManager:
         if tmdb_id:
             rating_data = self.rating_fetcher.fetch_tmdb_rating(tmdb_id, media_type='tv')
             if rating_data:
-                return self._map_status_to_overlay(rating_data.get('status'))
+                return self._map_status_to_overlay(
+                    rating_data.get('status'),
+                    in_production=rating_data.get('in_production'),
+                    has_next_episode=bool(rating_data.get('next_episode_to_air'))
+                )
 
         return None
 
