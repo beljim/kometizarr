@@ -210,11 +210,11 @@ class RatingFetcher:
                 value = rating.get('value')
 
                 if source == 'imdb' and value:
-                    # MDBList IMDb score is 0-100, convert to 0-10 scale
-                    result['imdb'] = round(float(value) / 10, 1)
+                    # MDBList IMDb value is already on 0-10 scale
+                    result['imdb'] = round(float(value), 1)
                 elif source == 'tmdb' and value:
-                    # MDBList TMDB score is 0-100, convert to 0-10 scale
-                    result['tmdb'] = round(float(value) / 10, 1)
+                    # MDBList TMDB value is already on 0-10 scale
+                    result['tmdb'] = round(float(value), 1)
                 elif source == 'tomatoes' and value:
                     result['rt_critic'] = float(value)
                 elif source == 'tomatoesaudience' and value:

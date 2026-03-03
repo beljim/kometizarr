@@ -1,0 +1,26 @@
+services:
+  backend:
+    image: ghcr.io/beljim/kometizarr-backend:latest
+    container_name: kometizarr-backend
+    ports:
+      - "8007:8000"
+    volumes:
+      - /opt/kometizarr-backend/backups:/backups # Poster backups (PERSISTENT)
+      - /opt/kometizarr-backend/data:/app/kometizarr/data # Settings (cron, webhook config)
+    environment:
+      - PLEX_URL=http://185.223.29.239:32400
+      - PLEX_TOKEN=2bThbiVZfM2u9bSAyLVc
+      - TMDB_API_KEY=eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJhNmE1M2ExNjgyOTg1MjFkZDE1YzFhYWNiNWM4NTFlNSIsIm5iZiI6MTQxNDU3ODI1OS4wOTYsInN1YiI6IjU0NTBjMDUyMGUwYTI2M2EwYTAwM2U4NiIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.z4EacdqLKPvGwPFAyBW8eh_of6UYDRunTeZa5y_fhrY
+      - OMDB_API_KEY=YOUR_OMDB_KEY  # Optional
+      - MDBLIST_API_KEY=ik129bk35s1as3anujych9srv
+    restart: unless-stopped
+
+
+  frontend:
+    image: ghcr.io/beljim/kometizarr-frontend:latest
+    container_name: kometizarr-frontend
+    ports:
+      - "3007:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
