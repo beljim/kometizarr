@@ -100,18 +100,17 @@ class PlexPosterManager:
         """
         Extract ratings from Plex's own metadata
 
-        Plex stores ratings from multiple sources in the ratings array:
-        - TMDB (audience, 0-10 scale)
-        - IMDb (audience, 0-10 scale)
-        - RT Critic (critic, 0-10 scale -> multiply by 10 for %)
-        - RT Audience (audience, 0-10 scale -> multiply by 10 for %)
+        Tries the modern `ratings` array first (Plex 1.30+), then falls back
+        to legacy scalar fields (audienceRating, rating) which are more
+        reliably populated.
 
         Returns:
             Dict with available ratings: {'tmdb': 7.5, 'imdb': 6.8, 'rt_critic': 30.0, 'rt_audience': 92.0}
         """
         plex_ratings = {}
 
-        if hasattr(movie, 'ratings'):
+        # Modern ratings array (Plex 1.30+, PlexAPI 4.15+)
+        if hasattr(movie, 'ratings') and movie.ratings:
             for rating in movie.ratings:
                 rating_type = rating.type
                 rating_value = rating.value
@@ -132,6 +131,30 @@ class PlexPosterManager:
                 # TMDB (audience type with themoviedb image)
                 elif rating_type == 'audience' and 'themoviedb' in rating_image:
                     plex_ratings['tmdb'] = rating_value
+
+        # Fallback: legacy scalar fields (more reliably populated)
+        if not plex_ratings:
+            audience_rating = getattr(movie, 'audienceRating', None)
+            audience_image = getattr(movie, 'audienceRatingImage', '') or ''
+            critic_rating = getattr(movie, 'rating', None)
+            critic_image = getattr(movie, 'ratingImage', '') or ''
+
+            if audience_rating and audience_rating > 0:
+                if 'imdb' in audience_image:
+                    plex_ratings['imdb'] = audience_rating
+                elif 'themoviedb' in audience_image:
+                    plex_ratings['tmdb'] = audience_rating
+                elif 'rottentomatoes' in audience_image:
+                    plex_ratings['rt_audience'] = audience_rating * 10
+
+            if critic_rating and critic_rating > 0:
+                if 'rottentomatoes' in critic_image:
+                    plex_ratings['rt_critic'] = critic_rating * 10
+                elif 'themoviedb' in critic_image:
+                    plex_ratings['tmdb'] = critic_rating
+
+            if plex_ratings:
+                logger.debug(f"  {movie.title}: Used legacy Plex fields (audienceRating={audience_rating}, rating={critic_rating})")
 
         return plex_ratings
 
@@ -327,6 +350,15 @@ class PlexPosterManager:
             # PRIORITY 1: Try to get ALL ratings from Plex's own metadata FIRST (fastest, most reliable)
             # This works for both movies AND TV shows and has ~100% coverage
             plex_ratings = self._extract_plex_ratings(movie)
+            if not plex_ratings:
+                logger.debug(
+                    f"  {movie.title}: No Plex embedded ratings "
+                    f"(ratings attr={'yes' if hasattr(movie, 'ratings') and movie.ratings else 'no'}, "
+                    f"audienceRating={getattr(movie, 'audienceRating', None)}, "
+                    f"audienceRatingImage={getattr(movie, 'audienceRatingImage', None)}, "
+                    f"rating={getattr(movie, 'rating', None)}, "
+                    f"ratingImage={getattr(movie, 'ratingImage', None)})"
+                )
 
             # Build ratings dict - start with what Plex has
             ratings = {}
