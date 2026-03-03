@@ -7,6 +7,7 @@ const DEFAULT_BADGE_STYLE = {
   rating_color: '#FFD700',    // Gold color (default)
   background_opacity: 128,    // 0-255, default 128 (50%)
   font_family: 'DejaVu Sans Bold',  // Font family
+  badge_template: 'default',  // Badge template (default, minimal, pill, bordered, gradient, square)
   status_overlay: 'none', // none | auto | current | renewed | cancelled
   status_position: { x: 50, y: 50 }, // {x, y} percentage — draggable like badges
   status_rotation: 0 // 0 = horizontal, 90 = vertical (top-to-bottom), -90 = vertical (bottom-to-top)
@@ -805,6 +806,25 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
 
                   {/* Font and Color - Side by Side */}
                   <div className="grid grid-cols-2 gap-3">
+                    {/* Badge Template */}
+                    <div>
+                      <label className="text-xs text-gray-400 block mb-1">
+                        Template
+                      </label>
+                      <select
+                        value={badgeStyle.badge_template || 'default'}
+                        onChange={(e) => updateBadgeStyle('badge_template', e.target.value)}
+                        className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white"
+                      >
+                        <option value="default">Classic</option>
+                        <option value="minimal">Minimal (no bg)</option>
+                        <option value="pill">Pill</option>
+                        <option value="bordered">Bordered</option>
+                        <option value="gradient">Gradient</option>
+                        <option value="square">Square</option>
+                      </select>
+                    </div>
+
                     {/* Font Family */}
                     <div>
                       <label className="text-xs text-gray-400 block mb-1">
@@ -828,6 +848,10 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                         <option value="DejaVu Sans Mono Oblique">Mono Italic</option>
                       </select>
                     </div>
+                  </div>
+
+                  {/* Rating Color and Background */}
+                  <div className="grid grid-cols-2 gap-3">
 
                     {/* Rating Color */}
                     <div>
@@ -844,22 +868,22 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                         <span className="text-xs text-gray-400 font-mono text-xs">{badgeStyle.rating_color}</span>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Background Opacity */}
-                  <div>
-                    <label className="text-xs text-gray-400 block mb-1">
-                      Background: {Math.round((badgeStyle.background_opacity / 255) * 100)}%
-                    </label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="255"
-                      step="5"
-                      value={badgeStyle.background_opacity}
-                      onChange={(e) => updateBadgeStyle('background_opacity', parseInt(e.target.value))}
-                      className="w-full accent-blue-500"
-                    />
+                    {/* Background Opacity */}
+                    <div>
+                      <label className="text-xs text-gray-400 block mb-1">
+                        Background: {Math.round((badgeStyle.background_opacity / 255) * 100)}%
+                      </label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="255"
+                        step="5"
+                        value={badgeStyle.background_opacity}
+                        onChange={(e) => updateBadgeStyle('background_opacity', parseInt(e.target.value))}
+                        className="w-full accent-blue-500"
+                      />
+                    </div>
                   </div>
 
                   {/* Series Status Overlay */}

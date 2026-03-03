@@ -81,6 +81,7 @@ class PlexPosterManager:
         logger.info(f"Library: {library_name} ({self.library.totalSize} items)")
         if dry_run:
             logger.info("DRY-RUN MODE: No changes will be applied")
+        self._excluded_items = set()  # Populated externally from settings
 
     def _extract_tmdb_id(self, guids: list) -> Optional[int]:
         """Extract TMDB ID from Plex GUIDs"""
@@ -342,6 +343,13 @@ class PlexPosterManager:
                 logger.warning(f"⚠️  {movie.title}: No TMDB or IMDb ID found")
                 return False
 
+            # Check exclude list
+            if hasattr(self, '_excluded_items') and self._excluded_items:
+                safe_title = "".join(c for c in movie.title if c.isalnum() or c in (' ', '-', '_')).strip()
+                if safe_title in self._excluded_items:
+                    logger.debug(f"⏭️  {movie.title}: Excluded by user, skipping")
+                    return None
+
             # Skip if overlay already applied (unless force=True)
             if not force and self.backup_manager.has_overlay(self.library_name, movie.title, rating_key=movie.ratingKey):
                 logger.debug(f"⏭️  {movie.title}: Already has overlay, skipping")
@@ -419,6 +427,18 @@ class PlexPosterManager:
 
             # Remove zero-value ratings (no votes yet = nothing meaningful to display)
             ratings = {k: v for k, v in ratings.items() if v and v > 0}
+
+            # Smart Refresh: in force mode, skip if ratings haven't changed since last run
+            if force and ratings:
+                existing_meta = self.backup_manager.get_metadata(self.library_name, movie.title)
+                if existing_meta and existing_meta.get('ratings'):
+                    old_ratings = existing_meta['ratings']
+                    # Compare rounded values to avoid floating point noise
+                    old_rounded = {k: round(float(v), 1) for k, v in old_ratings.items() if v}
+                    new_rounded = {k: round(float(v), 1) for k, v in ratings.items()}
+                    if old_rounded == new_rounded and self.backup_manager.has_overlay(self.library_name, movie.title, rating_key=movie.ratingKey):
+                        logger.debug(f"⏭️  {movie.title}: Ratings unchanged ({new_rounded}), skipping smart refresh")
+                        return None
 
             # Check if we have ANY ratings to display
             if not ratings:

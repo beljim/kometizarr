@@ -5,9 +5,81 @@ Supports TMDB, IMDb, and Rotten Tomatoes ratings with logos
 MIT License - Copyright (c) 2026 Kometizarr Contributors
 """
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from typing import Tuple, Dict, Optional, List, Any
 from pathlib import Path
+
+
+# ── Badge Templates ──────────────────────────────────────────────────────────
+# Each template defines the badge shape, background style, and text rendering.
+# Templates are referenced by badge_style.get('badge_template', 'default').
+
+BADGE_TEMPLATES = {
+    'default': {
+        'label': 'Classic',
+        'description': 'Rounded rectangle with semi-transparent background',
+        'corner_radius_pct': 0.10,      # % of badge width
+        'aspect_ratio': 1.4,            # height = width * aspect_ratio
+        'logo_section_pct': 0.60,       # top 60% for logo
+        'gradient': False,
+        'border': False,
+        'shadow': True,
+    },
+    'minimal': {
+        'label': 'Minimal',
+        'description': 'No background, logo + number with strong text shadow',
+        'corner_radius_pct': 0,
+        'aspect_ratio': 1.4,
+        'logo_section_pct': 0.60,
+        'gradient': False,
+        'border': False,
+        'shadow': True,
+        'no_background': True,
+    },
+    'pill': {
+        'label': 'Pill',
+        'description': 'Fully rounded pill shape',
+        'corner_radius_pct': 0.50,      # 50% = full pill
+        'aspect_ratio': 1.4,
+        'logo_section_pct': 0.60,
+        'gradient': False,
+        'border': False,
+        'shadow': True,
+    },
+    'bordered': {
+        'label': 'Bordered',
+        'description': 'Rounded rectangle with colored border',
+        'corner_radius_pct': 0.10,
+        'aspect_ratio': 1.4,
+        'logo_section_pct': 0.60,
+        'gradient': False,
+        'border': True,
+        'border_width_pct': 0.04,       # % of badge width
+        'shadow': True,
+    },
+    'gradient': {
+        'label': 'Gradient',
+        'description': 'Dark gradient background from top to bottom',
+        'corner_radius_pct': 0.10,
+        'aspect_ratio': 1.4,
+        'logo_section_pct': 0.60,
+        'gradient': True,
+        'gradient_top_opacity': 200,
+        'gradient_bottom_opacity': 80,
+        'border': False,
+        'shadow': True,
+    },
+    'square': {
+        'label': 'Square',
+        'description': 'Sharp corners square badge',
+        'corner_radius_pct': 0.0,
+        'aspect_ratio': 1.4,
+        'logo_section_pct': 0.60,
+        'gradient': False,
+        'border': False,
+        'shadow': True,
+    },
+}
 
 
 class MultiRatingBadge:
@@ -238,21 +310,51 @@ class MultiRatingBadge:
         # Convert hex color to RGB tuple
         rating_color = tuple(int(rating_color_hex.lstrip('#')[i:i+2], 16) for i in (0, 2, 4)) + (255,)
 
+        # Load template
+        template_name = style.get('badge_template', 'default')
+        template = BADGE_TEMPLATES.get(template_name, BADGE_TEMPLATES['default'])
+
         # Badge size - compact square-ish badge
         badge_width = int(poster_width * badge_size_percent)
-        badge_height = int(badge_width * 1.4)  # Slightly taller than wide (logo + number)
+        badge_height = int(badge_width * template.get('aspect_ratio', 1.4))
 
         # Create badge with transparent background
         badge = Image.new('RGBA', (badge_width, badge_height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(badge)
 
-        # Draw semi-transparent black rounded rectangle background
-        corner_radius = int(badge_width * 0.1)  # 10% of badge width
-        draw.rounded_rectangle(
-            [(0, 0), (badge_width, badge_height)],
-            radius=corner_radius,
-            fill=(0, 0, 0, background_opacity)
-        )
+        # Draw background based on template
+        corner_radius = int(badge_width * template.get('corner_radius_pct', 0.10))
+
+        if not template.get('no_background', False):
+            if template.get('gradient', False):
+                # Gradient background: draw line by line with varying opacity
+                top_opacity = template.get('gradient_top_opacity', 200)
+                bottom_opacity = template.get('gradient_bottom_opacity', 80)
+                for y in range(badge_height):
+                    alpha = int(top_opacity + (bottom_opacity - top_opacity) * (y / badge_height))
+                    draw.line([(0, y), (badge_width, y)], fill=(0, 0, 0, alpha))
+                # Apply rounded mask to clip the gradient
+                if corner_radius > 0:
+                    mask = Image.new('L', (badge_width, badge_height), 0)
+                    mask_draw = ImageDraw.Draw(mask)
+                    mask_draw.rounded_rectangle([(0, 0), (badge_width, badge_height)], radius=corner_radius, fill=255)
+                    badge.putalpha(mask)
+            else:
+                draw.rounded_rectangle(
+                    [(0, 0), (badge_width, badge_height)],
+                    radius=corner_radius,
+                    fill=(0, 0, 0, background_opacity)
+                )
+
+            # Draw border if template calls for it
+            if template.get('border', False):
+                border_width = max(1, int(badge_width * template.get('border_width_pct', 0.04)))
+                draw.rounded_rectangle(
+                    [(0, 0), (badge_width - 1, badge_height - 1)],
+                    radius=corner_radius,
+                    outline=rating_color,
+                    width=border_width
+                )
 
         # For RT scores, dynamically select logo based on score
         logo_key = source
@@ -261,9 +363,9 @@ class MultiRatingBadge:
         elif source == 'rt_audience':
             logo_key = 'rt_audience_fresh' if rating >= 60 else 'rt_audience_rotten'
 
-        # Draw logo in top 60% of badge
+        # Draw logo in top section of badge (percentage from template)
         logo = self.logos.get(logo_key)
-        logo_section_height = int(badge_height * 0.6)
+        logo_section_height = int(badge_height * template.get('logo_section_pct', 0.60))
         padding = int(badge_width * 0.1)
 
         if logo:

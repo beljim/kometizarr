@@ -258,6 +258,10 @@ export default function Settings() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleteResult, setDeleteResult] = useState(null)
 
+  // Health
+  const [health, setHealth] = useState(null)
+  const [healthLoading, setHealthLoading] = useState(true)
+
   // Poll fresh posters status while running
   useEffect(() => {
     let interval
@@ -276,6 +280,10 @@ export default function Settings() {
     fetch('/api/settings').then(r => r.json()).then(data => {
       setSettings(data)
     })
+    fetch('/api/health').then(r => r.json()).then(d => {
+      setHealth(d)
+      setHealthLoading(false)
+    }).catch(() => setHealthLoading(false))
   }, [])
 
   const saveSettings = async (patch) => {
@@ -338,6 +346,66 @@ export default function Settings() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
+
+      {/* ── Health Dashboard ──────────────────────────────────────── */}
+      <section className="bg-gray-800 border border-gray-700 rounded-xl p-6 space-y-4">
+        <h2 className="text-white font-semibold text-base">💚 System Health</h2>
+        {healthLoading ? (
+          <p className="text-gray-400 text-xs">Checking…</p>
+        ) : health ? (
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            {/* Plex */}
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${health.plex_connected ? 'bg-green-400' : 'bg-red-400'}`} />
+              <span className="text-gray-300 text-xs">Plex</span>
+            </div>
+            <span className={`text-xs ${health.plex_connected ? 'text-green-400' : 'text-red-400'}`}>
+              {health.plex_connected ? 'Connected' : 'Disconnected'}
+            </span>
+
+            {/* API keys */}
+            {health.api_keys && Object.entries(health.api_keys).map(([key, status]) => (
+              <div key={key} className="contents">
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${status === 'valid' ? 'bg-green-400' : status === 'not_set' ? 'bg-gray-500' : 'bg-yellow-400'}`} />
+                  <span className="text-gray-300 text-xs">{key.toUpperCase()}</span>
+                </div>
+                <span className={`text-xs ${status === 'valid' ? 'text-green-400' : status === 'not_set' ? 'text-gray-500' : 'text-yellow-400'}`}>
+                  {status === 'valid' ? 'Valid' : status === 'not_set' ? 'Not set' : status}
+                </span>
+              </div>
+            ))}
+
+            {/* Backup disk */}
+            {health.backup_disk && (
+              <>
+                <span className="text-gray-300 text-xs">Backup disk</span>
+                <span className="text-gray-400 text-xs">{health.backup_disk.total_size} ({health.backup_disk.file_count} files)</span>
+              </>
+            )}
+
+            {/* Last run */}
+            {health.last_run && (
+              <>
+                <span className="text-gray-300 text-xs">Last run</span>
+                <span className="text-gray-400 text-xs">{new Date(health.last_run.timestamp).toLocaleString()} — {health.last_run.library}</span>
+              </>
+            )}
+
+            {/* Next scheduled */}
+            {health.next_scheduled && health.next_scheduled.length > 0 && (
+              <>
+                <span className="text-gray-300 text-xs">Next scheduled</span>
+                <span className="text-gray-400 text-xs">
+                  {health.next_scheduled.map(s => `${s.name}: ${new Date(s.next_run).toLocaleString()}`).join(' · ')}
+                </span>
+              </>
+            )}
+          </div>
+        ) : (
+          <p className="text-gray-500 text-xs">Health data unavailable</p>
+        )}
+      </section>
 
       {/* ── Scheduled Processing ──────────────────────────────────── */}
       <section className="bg-gray-800 border border-gray-700 rounded-xl p-6 space-y-4">
@@ -444,6 +512,32 @@ export default function Settings() {
           {saving ? 'Saving…' : 'Save Webhook Settings'}
         </button>
         {savedMsg && <span className="text-xs text-green-400 ml-3">{savedMsg}</span>}
+
+        {/* Webhook delay */}
+        {settings.webhook?.enabled && (
+          <div className="mt-4 pt-4 border-t border-gray-700">
+            <label className="text-xs text-gray-400 block mb-1">
+              Webhook Delay: <span className="text-white font-medium">{settings.webhook_delay ?? 15}s</span>
+            </label>
+            <p className="text-xs text-gray-500 mb-2">Seconds to wait after webhook before processing (allows Plex metadata to settle)</p>
+            <input
+              type="range" min="0" max="120" step="5"
+              value={settings.webhook_delay ?? 15}
+              onChange={e => setSettings(s => ({ ...s, webhook_delay: parseInt(e.target.value) }))}
+              className="w-full accent-blue-500"
+            />
+            <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+              <span>0s</span><span>30s</span><span>60s</span><span>90s</span><span>120s</span>
+            </div>
+            <button
+              onClick={() => saveSettings({ webhook_delay: settings.webhook_delay })}
+              disabled={saving}
+              className="mt-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 rounded text-xs text-white font-semibold transition"
+            >
+              {saving ? 'Saving…' : 'Save Delay'}
+            </button>
+          </div>
+        )}
       </section>
 
       {/* ── Library Maintenance ───────────────────────────────────── */}

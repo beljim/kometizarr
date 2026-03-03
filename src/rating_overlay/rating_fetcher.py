@@ -6,12 +6,30 @@ MIT License - Copyright (c) 2026 Kometizarr Contributors
 """
 
 import logging
+import time
+import threading
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
+
+# Module-level rate limiters — shared across all RatingFetcher instances
+# Limits concurrent in-flight requests to each API provider
+_api_semaphores = {
+    'tmdb': threading.Semaphore(8),
+    'omdb': threading.Semaphore(4),
+    'mdblist': threading.Semaphore(4),
+}
+# Simple per-provider request delay (seconds) to stay under rate limits
+_api_min_intervals = {
+    'tmdb': 0.03,     # ~33 req/s (TMDB allows ~40/s)
+    'omdb': 0.1,      # ~10 req/s
+    'mdblist': 0.1,   # ~10 req/s
+}
+_api_last_request: Dict[str, float] = {'tmdb': 0, 'omdb': 0, 'mdblist': 0}
+_api_lock = threading.Lock()
 
 
 class RatingFetcher:
@@ -67,13 +85,35 @@ class RatingFetcher:
             self._tmdb_headers = {}
 
     # ── helper for all TMDB requests ──────────────────────────────
+    def _rate_limited_get(self, provider: str, url: str, **kwargs) -> requests.Response:
+        """Make a rate-limited GET request to an API provider."""
+        sem = _api_semaphores.get(provider)
+        min_interval = _api_min_intervals.get(provider, 0)
+
+        if sem:
+            sem.acquire()
+        try:
+            # Enforce minimum interval between requests to the same provider
+            if min_interval > 0:
+                with _api_lock:
+                    elapsed = time.monotonic() - _api_last_request.get(provider, 0)
+                    if elapsed < min_interval:
+                        time.sleep(min_interval - elapsed)
+                    _api_last_request[provider] = time.monotonic()
+
+            kwargs.setdefault('timeout', self.REQUEST_TIMEOUT)
+            return self.session.get(url, **kwargs)
+        finally:
+            if sem:
+                sem.release()
+
     def _tmdb_get(self, path: str, extra_params: Optional[Dict] = None) -> requests.Response:
         """Make a GET to TMDB using whichever auth method was configured."""
         url = f"{self.TMDB_BASE_URL}/{path}"
         params = dict(extra_params or {})
         if self.tmdb_api_key:
             params["api_key"] = self.tmdb_api_key
-        return self.session.get(url, params=params, headers=self._tmdb_headers, timeout=self.REQUEST_TIMEOUT)
+        return self._rate_limited_get('tmdb', url, params=params, headers=self._tmdb_headers)
 
     def fetch_tmdb_rating(self, tmdb_id: int, media_type: str = 'movie') -> Optional[Dict]:
         """
@@ -152,7 +192,7 @@ class RatingFetcher:
         url = f"{self.OMDB_BASE_URL}?i={imdb_id}&apikey={self.omdb_api_key}"
 
         try:
-            response = self.session.get(url, timeout=self.REQUEST_TIMEOUT)
+            response = self._rate_limited_get('omdb', url)
             response.raise_for_status()
             data = response.json()
 
@@ -196,7 +236,7 @@ class RatingFetcher:
         url = f"{self.MDBLIST_BASE_URL}/?apikey={self.mdblist_api_key}&i={imdb_id}"
 
         try:
-            response = self.session.get(url, timeout=self.REQUEST_TIMEOUT)
+            response = self._rate_limited_get('mdblist', url)
             response.raise_for_status()
             data = response.json()
 

@@ -28,7 +28,46 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Kometizarr API", version="1.2.1")
+app = FastAPI(title="Kometizarr API", version="1.3.0")
+
+# ── Run History Log ──────────────────────────────────────────────────────────
+HISTORY_PATH = Path('/app/kometizarr/data/run_history.json')
+MAX_HISTORY_ENTRIES = 100
+
+def _load_history() -> list:
+    if not HISTORY_PATH.exists():
+        return []
+    try:
+        return json.loads(HISTORY_PATH.read_text())
+    except Exception:
+        return []
+
+def _save_history(entries: list):
+    HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    HISTORY_PATH.write_text(json.dumps(entries[-MAX_HISTORY_ENTRIES:], indent=2))
+
+def _record_run(run_type: str, library: str, total: int, success: int, failed: int, skipped: int, duration_seconds: float, force: bool = False):
+    entries = _load_history()
+    entries.append({
+        'timestamp': datetime.now().isoformat(),
+        'type': run_type,
+        'library': library,
+        'total': total,
+        'success': success,
+        'failed': failed,
+        'skipped': skipped,
+        'duration_seconds': round(duration_seconds, 1),
+        'force': force,
+    })
+    _save_history(entries)
+
+# ── API Rate Limiting (semaphore per provider) ───────────────────────────────
+# Limits concurrent in-flight requests to each API provider
+_rate_limiters = {
+    'tmdb': threading.Semaphore(8),
+    'omdb': threading.Semaphore(4),
+    'mdblist': threading.Semaphore(4),
+}
 
 # CORS middleware for frontend
 app.add_middleware(
@@ -349,6 +388,9 @@ async def restore_library_background(request: ProcessRequest):
         logger.info(f"Rate:            {rate_per_min:.1f} items/min")
         logger.info("=" * 60)
 
+        # Record to run history
+        _record_run('restore', request.library_name, total, restored, failed, skipped, duration_seconds)
+
         await broadcast_restore_progress()  # Final update
 
     except Exception as e:
@@ -389,6 +431,11 @@ async def process_library_background(request: ProcessRequest):
             rating_sources=request.rating_sources,
             badge_style=request.badge_style  # Pass badge styling options
         )
+
+        # Load excluded items from settings
+        process_settings = _load_settings()
+        excluded = process_settings.get('excluded_items', {}).get(request.library_name, [])
+        manager._excluded_items = set(excluded)
 
         if request.rating_key:
             all_items = [manager.library.fetchItem(int(request.rating_key))]
@@ -483,6 +530,9 @@ async def process_library_background(request: ProcessRequest):
         logger.info(f"Rate:            {rate_per_min:.1f} items/min")
         logger.info("=" * 60)
 
+        # Record to run history
+        _record_run('process', request.library_name, total, success, failed, skipped, duration_seconds, force=request.force)
+
         await broadcast_progress()  # Final update
 
     except Exception as e:
@@ -499,6 +549,244 @@ async def process_library_background(request: ProcessRequest):
 async def get_status():
     """Get current processing status"""
     return processing_state
+
+
+# ── Run History ───────────────────────────────────────────────────────────────
+
+@app.get("/api/history")
+async def get_history(limit: int = 50):
+    """Get processing run history"""
+    entries = _load_history()
+    return {"history": entries[-limit:]}
+
+
+@app.delete("/api/history")
+async def clear_history():
+    """Clear run history"""
+    _save_history([])
+    return {"status": "cleared"}
+
+
+# ── Badge Templates ───────────────────────────────────────────────────────────
+
+@app.get("/api/badge-templates")
+async def get_badge_templates():
+    """Return available badge templates for the frontend selector"""
+    from src.rating_overlay.multi_rating_badge import BADGE_TEMPLATES
+    templates = {
+        key: {"label": t["label"], "description": t["description"]}
+        for key, t in BADGE_TEMPLATES.items()
+    }
+    return {"templates": templates}
+
+
+# ── Health Dashboard ──────────────────────────────────────────────────────────
+
+@app.get("/api/health")
+async def get_health():
+    """Health check with API key status, Plex connection, backup disk usage"""
+    result = {
+        'plex': {'status': 'unknown', 'server_name': None, 'version': None},
+        'api_keys': {},
+        'backups': {'total_size_bytes': 0, 'total_size_human': '0 B', 'library_count': 0, 'item_count': 0},
+        'last_run': None,
+        'next_scheduled': {'normal': None, 'force': None},
+    }
+
+    # Plex connection
+    try:
+        from plexapi.server import PlexServer
+        plex_url = os.getenv('PLEX_URL', '')
+        plex_token = os.getenv('PLEX_TOKEN', '')
+        if plex_url and plex_token:
+            server = PlexServer(plex_url, plex_token, timeout=5)
+            result['plex'] = {'status': 'connected', 'server_name': server.friendlyName, 'version': server.version}
+        else:
+            result['plex'] = {'status': 'not_configured', 'server_name': None, 'version': None}
+    except Exception as e:
+        result['plex'] = {'status': 'error', 'error': str(e), 'server_name': None, 'version': None}
+
+    # API keys
+    key_checks = {
+        'tmdb': ('TMDB_API_KEY', {'', 'YOUR_TMDB_KEY', 'YOUR_TMDB_API_KEY'}),
+        'omdb': ('OMDB_API_KEY', {'', 'YOUR_OMDB_KEY', 'YOUR_OMDB_API_KEY', 'YOUR_OMDB_API_KEY_HERE'}),
+        'mdblist': ('MDBLIST_API_KEY', {'', 'YOUR_MDBLIST_KEY', 'YOUR_MDBLIST_API_KEY', 'YOUR_MDBLIST_API_KEY_HERE'}),
+    }
+    for name, (env_var, placeholders) in key_checks.items():
+        val = os.getenv(env_var, '')
+        if not val:
+            result['api_keys'][name] = 'missing'
+        elif val.strip().upper() in {p.upper() for p in placeholders}:
+            result['api_keys'][name] = 'placeholder'
+        else:
+            result['api_keys'][name] = 'configured'
+
+    # Validate TMDB key
+    if result['api_keys'].get('tmdb') == 'configured':
+        try:
+            import requests as req
+            tmdb_key = os.getenv('TMDB_API_KEY', '')
+            if tmdb_key.startswith('eyJ'):
+                resp = req.get('https://api.themoviedb.org/3/configuration', headers={'Authorization': f'Bearer {tmdb_key}'}, timeout=5)
+            else:
+                resp = req.get(f'https://api.themoviedb.org/3/configuration?api_key={tmdb_key}', timeout=5)
+            if resp.status_code == 200:
+                result['api_keys']['tmdb'] = 'valid'
+            else:
+                result['api_keys']['tmdb'] = 'invalid'
+        except Exception:
+            result['api_keys']['tmdb'] = 'configured'
+
+    # Backup disk usage
+    backup_root = Path('/backups')
+    if backup_root.exists():
+        total_size = 0
+        item_count = 0
+        lib_count = 0
+        for lib_dir in backup_root.iterdir():
+            if lib_dir.is_dir():
+                lib_count += 1
+                for item_dir in lib_dir.iterdir():
+                    if item_dir.is_dir():
+                        item_count += 1
+                        for f in item_dir.iterdir():
+                            if f.is_file():
+                                total_size += f.stat().st_size
+        if total_size >= 1073741824:
+            human = f"{total_size / 1073741824:.1f} GB"
+        elif total_size >= 1048576:
+            human = f"{total_size / 1048576:.1f} MB"
+        elif total_size >= 1024:
+            human = f"{total_size / 1024:.1f} KB"
+        else:
+            human = f"{total_size} B"
+        result['backups'] = {'total_size_bytes': total_size, 'total_size_human': human, 'library_count': lib_count, 'item_count': item_count}
+
+    # Last run & next scheduled
+    history = _load_history()
+    if history:
+        result['last_run'] = history[-1]
+    for key in ('cron_normal', 'cron_force'):
+        job = scheduler.get_job(key)
+        sched_key = 'normal' if 'normal' in key else 'force'
+        result['next_scheduled'][sched_key] = job.next_run_time.isoformat() if job and job.next_run_time else None
+
+    return result
+
+
+# ── Item Gallery ──────────────────────────────────────────────────────────────
+
+@app.get("/api/gallery/{library_name}")
+async def get_gallery(library_name: str, page: int = 1, per_page: int = 50):
+    """Get item gallery with overlay status for a library"""
+    from src.rating_overlay.backup_manager import PosterBackupManager
+
+    backup_manager = PosterBackupManager(backup_dir='/backups')
+    backup_root = Path('/backups') / library_name
+
+    items = []
+    if backup_root.exists():
+        all_dirs = sorted([d for d in backup_root.iterdir() if d.is_dir()], key=lambda d: d.name)
+        total = len(all_dirs)
+        start = (page - 1) * per_page
+        page_dirs = all_dirs[start:start + per_page]
+
+        settings = _load_settings()
+        excluded = settings.get('excluded_items', {}).get(library_name, [])
+
+        for item_dir in page_dirs:
+            has_original = (item_dir / 'poster_original.jpg').exists()
+            has_overlay = (item_dir / 'poster_overlay.jpg').exists()
+            metadata = backup_manager._load_metadata(item_dir)
+
+            status = 'overlay_applied' if has_overlay else ('backup_only' if has_original else 'unknown')
+            if item_dir.name in excluded:
+                status = 'excluded'
+
+            items.append({
+                'title': item_dir.name,
+                'status': status,
+                'ratings': metadata.get('ratings', {}) if metadata else {},
+                'year': metadata.get('year') if metadata else None,
+                'rating_key': metadata.get('rating_key') if metadata else None,
+                'has_original': has_original,
+                'has_overlay': has_overlay,
+            })
+    else:
+        total = 0
+
+    return {'items': items, 'total': total, 'page': page, 'per_page': per_page, 'pages': max(1, -(-total // per_page))}
+
+
+@app.get("/api/gallery/{library_name}/{item_title}/poster")
+async def get_gallery_poster(library_name: str, item_title: str, version: str = 'overlay'):
+    """Serve poster image for gallery thumbnail"""
+    safe_title = "".join(c for c in item_title if c.isalnum() or c in (' ', '-', '_')).strip()
+    filename = 'poster_overlay.jpg' if version == 'overlay' else 'poster_original.jpg'
+    poster_path = Path('/backups') / library_name / safe_title / filename
+
+    if not poster_path.exists():
+        alt = 'poster_original.jpg' if version == 'overlay' else 'poster_overlay.jpg'
+        poster_path = Path('/backups') / library_name / safe_title / alt
+
+    if poster_path.exists():
+        return FileResponse(str(poster_path), media_type='image/jpeg')
+    return {"error": "not found"}
+
+
+@app.post("/api/gallery/{library_name}/{item_title}/exclude")
+async def exclude_item(library_name: str, item_title: str):
+    """Exclude an item from future processing"""
+    settings = _load_settings()
+    excluded = settings.setdefault('excluded_items', {}).setdefault(library_name, [])
+    safe_title = "".join(c for c in item_title if c.isalnum() or c in (' ', '-', '_')).strip()
+    if safe_title not in excluded:
+        excluded.append(safe_title)
+    _save_settings(settings)
+    return {"status": "excluded", "title": safe_title}
+
+
+@app.delete("/api/gallery/{library_name}/{item_title}/exclude")
+async def unexclude_item(library_name: str, item_title: str):
+    """Remove item from exclude list"""
+    settings = _load_settings()
+    excluded = settings.get('excluded_items', {}).get(library_name, [])
+    safe_title = "".join(c for c in item_title if c.isalnum() or c in (' ', '-', '_')).strip()
+    if safe_title in excluded:
+        excluded.remove(safe_title)
+    _save_settings(settings)
+    return {"status": "included", "title": safe_title}
+
+
+@app.post("/api/gallery/{library_name}/{item_title}/retry")
+async def retry_item(library_name: str, item_title: str):
+    """Retry processing a single item by title"""
+    try:
+        from plexapi.server import PlexServer
+
+        plex_url = os.getenv('PLEX_URL')
+        plex_token = os.getenv('PLEX_TOKEN')
+        server = PlexServer(plex_url, plex_token)
+        library = server.library.section(library_name)
+
+        results = library.search(title=item_title)
+        if not results:
+            return {"error": f"Item '{item_title}' not found in Plex library"}
+
+        item = results[0]
+        settings = _load_settings()
+
+        asyncio.create_task(process_library_background(ProcessRequest(
+            library_name=library_name,
+            rating_key=str(item.ratingKey),
+            force=True,
+            badge_style=settings.get("badge_style"),
+            badge_positions=settings.get("badge_positions"),
+            rating_sources=settings.get("rating_sources"),
+        )))
+        return {"status": "started", "title": item.title}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 class PreviewRequest(BaseModel):
@@ -961,6 +1249,25 @@ SETTINGS_PATH = Path('/app/kometizarr/data/settings.json')
 
 scheduler = AsyncIOScheduler()
 
+# Settings schema version — increment when adding/removing keys
+SETTINGS_SCHEMA_VERSION = 2
+
+SETTINGS_SCHEMA_DEFAULTS = {
+    "_schema_version": SETTINGS_SCHEMA_VERSION,
+    "cron_normal": {"enabled": False, "libraries": [], "schedule": "0 3 * * *"},
+    "cron_force":  {"enabled": False, "libraries": [], "schedule": "0 3 * * 0"},
+    "webhook": {"enabled": False, "libraries": []},
+    "webhook_delay": 15,
+    "excluded_items": {},
+    "badge_positions": None,  # Seeded separately in startup
+    "badge_style": None,
+    "rating_sources": None,
+    "selected_libraries": [],
+}
+
+# Valid top-level keys (stale keys not in this set are pruned)
+VALID_SETTINGS_KEYS = set(SETTINGS_SCHEMA_DEFAULTS.keys())
+
 fresh_posters_state = {
     "is_running": False,
     "library": None,
@@ -977,6 +1284,8 @@ def _load_settings() -> dict:
         "cron_normal": {"enabled": False, "libraries": [], "schedule": "0 3 * * *"},
         "cron_force":  {"enabled": False, "libraries": [], "schedule": "0 3 * * 0"},
         "webhook": {"enabled": False, "libraries": []},
+        "webhook_delay": 15,
+        "excluded_items": {},
     }
     if not SETTINGS_PATH.exists():
         return defaults
@@ -991,7 +1300,39 @@ def _load_settings() -> dict:
         old = data["webhook"].pop("library")
         data["webhook"]["enabled"] = bool(old)
         data["webhook"]["libraries"] = [] if not old or old == "__all__" else [old]
+    # Ensure new keys have defaults
+    if "webhook_delay" not in data:
+        data["webhook_delay"] = 15
+    if "excluded_items" not in data:
+        data["excluded_items"] = {}
     return data
+
+
+def _validate_and_migrate_settings(settings: dict) -> dict:
+    """Validate settings schema, add missing keys, prune stale ones."""
+    stored_version = settings.get('_schema_version', 1)
+
+    # Add any missing keys from defaults
+    for key, default in SETTINGS_SCHEMA_DEFAULTS.items():
+        if key not in settings and default is not None:
+            settings[key] = default
+
+    # Prune stale keys (not in schema)
+    stale = [k for k in settings if k not in VALID_SETTINGS_KEYS]
+    for k in stale:
+        del settings[k]
+        logger.info(f"Settings: pruned stale key '{k}'")
+
+    # Ensure nested structures
+    if not isinstance(settings.get('webhook_delay'), (int, float)):
+        settings['webhook_delay'] = 15
+    settings['webhook_delay'] = max(0, min(120, int(settings['webhook_delay'])))
+
+    if not isinstance(settings.get('excluded_items'), dict):
+        settings['excluded_items'] = {}
+
+    settings['_schema_version'] = SETTINGS_SCHEMA_VERSION
+    return settings
 
 
 def _save_settings(settings: dict):
@@ -1074,11 +1415,12 @@ async def _webhook_queue_worker():
                 await asyncio.sleep(2)
 
             # Delay to let Plex finish metadata matching (GUIDs aren't available immediately)
-            logger.info(f"Webhook queue: waiting 15s for Plex to populate metadata for {item_title}")
-            await asyncio.sleep(15)
+            settings = _load_settings()
+            webhook_delay = settings.get('webhook_delay', 15)
+            logger.info(f"Webhook queue: waiting {webhook_delay}s for Plex to populate metadata for {item_title}")
+            await asyncio.sleep(webhook_delay)
 
             # Load current badge settings so webhook uses same styling as the UI
-            settings = _load_settings()
             badge_style = settings.get("badge_style")
             badge_positions = settings.get("badge_positions")
             rating_sources = settings.get("rating_sources")
@@ -1125,12 +1467,14 @@ DEFAULT_RATING_SOURCES = {
 async def startup_event():
     scheduler.start()
     settings = _load_settings()
+    # Validate and migrate settings schema
+    settings = _validate_and_migrate_settings(settings)
     # Seed badge defaults so webhook/cron work out of the box without UI interaction
     changed = False
-    if "badge_positions" not in settings:
+    if "badge_positions" not in settings or settings.get("badge_positions") is None:
         settings["badge_positions"] = DEFAULT_BADGE_POSITIONS
         changed = True
-    if "badge_style" not in settings:
+    if "badge_style" not in settings or settings.get("badge_style") is None:
         settings["badge_style"] = DEFAULT_BADGE_STYLE
         changed = True
     else:
@@ -1138,7 +1482,7 @@ async def startup_event():
             if key not in settings["badge_style"]:
                 settings["badge_style"][key] = value
                 changed = True
-    if "rating_sources" not in settings:
+    if "rating_sources" not in settings or settings.get("rating_sources") is None:
         settings["rating_sources"] = DEFAULT_RATING_SOURCES
         changed = True
     if changed:
@@ -1158,6 +1502,7 @@ async def get_settings():
 
 @app.put("/api/settings")
 async def update_settings(settings: dict):
+    settings = _validate_and_migrate_settings(settings)
     _save_settings(settings)
     _reschedule_cron(settings)
     result = {"status": "saved"}

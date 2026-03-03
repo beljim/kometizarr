@@ -3,6 +3,8 @@ import Dashboard from './components/Dashboard'
 import Collections from './components/Collections'
 import ProcessingProgress from './components/ProcessingProgress'
 import Settings from './components/Settings'
+import History from './components/History'
+import Gallery from './components/Gallery'
 
 function App() {
   const [processing, setProcessing] = useState(false)
@@ -99,6 +101,26 @@ function App() {
                   📚 Collections
                 </button>
                 <button
+                  onClick={() => setActiveTab('gallery')}
+                  className={`py-4 px-2 border-b-2 font-medium text-sm transition ${
+                    activeTab === 'gallery'
+                      ? 'border-blue-500 text-blue-400'
+                      : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
+                  }`}
+                >
+                  🖼️ Gallery
+                </button>
+                <button
+                  onClick={() => setActiveTab('history')}
+                  className={`py-4 px-2 border-b-2 font-medium text-sm transition ${
+                    activeTab === 'history'
+                      ? 'border-blue-500 text-blue-400'
+                      : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
+                  }`}
+                >
+                  📊 History
+                </button>
+                <button
                   onClick={() => setActiveTab('settings')}
                   className={`py-4 px-2 border-b-2 font-medium text-sm transition ${
                     activeTab === 'settings'
@@ -122,6 +144,10 @@ function App() {
               />
             ) : activeTab === 'collections' ? (
               <Collections selectedLibrary={selectedLibrary} />
+            ) : activeTab === 'gallery' ? (
+              <Gallery />
+            ) : activeTab === 'history' ? (
+              <History />
             ) : (
               <Settings />
             )}
@@ -132,7 +158,7 @@ function App() {
       {/* Footer */}
       <footer className="bg-gray-800 border-t border-gray-700 mt-12">
         <div className="max-w-7xl mx-auto px-4 py-4 text-center text-gray-500 text-sm">
-          Kometizarr v1.2.1 ✨
+          Kometizarr v1.3.0 ✨
         </div>
       </footer>
     </div>
