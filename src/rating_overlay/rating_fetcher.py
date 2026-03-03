@@ -5,8 +5,13 @@ Based on prototype_rating_overlay.py
 MIT License - Copyright (c) 2026 Kometizarr Contributors
 """
 
+import logging
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from typing import Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class RatingFetcher:
@@ -15,7 +20,7 @@ class RatingFetcher:
     TMDB_BASE_URL = "https://api.themoviedb.org/3"
     OMDB_BASE_URL = "http://www.omdbapi.com/"
     MDBLIST_BASE_URL = "https://mdblist.com/api"
-    REQUEST_TIMEOUT = 8
+    REQUEST_TIMEOUT = 15
 
     def __init__(self, tmdb_api_key: str, omdb_api_key: Optional[str] = None, mdblist_api_key: Optional[str] = None):
         """
@@ -28,6 +33,18 @@ class RatingFetcher:
         """
         self.omdb_api_key = omdb_api_key
         self.mdblist_api_key = mdblist_api_key
+
+        # Create a session with automatic retry for transient failures
+        self.session = requests.Session()
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET"],
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
 
         # Auto-detect whether the user supplied a v3 API key or a v4 Bearer token
         if tmdb_api_key and tmdb_api_key.startswith("eyJ"):
@@ -48,7 +65,7 @@ class RatingFetcher:
         params = dict(extra_params or {})
         if self.tmdb_api_key:
             params["api_key"] = self.tmdb_api_key
-        return requests.get(url, params=params, headers=self._tmdb_headers, timeout=self.REQUEST_TIMEOUT)
+        return self.session.get(url, params=params, headers=self._tmdb_headers, timeout=self.REQUEST_TIMEOUT)
 
     def fetch_tmdb_rating(self, tmdb_id: int, media_type: str = 'movie') -> Optional[Dict]:
         """
@@ -80,7 +97,7 @@ class RatingFetcher:
                 'source': 'tmdb'
             }
         except Exception as e:
-            print(f"✗ Error fetching TMDB rating: {e}")
+            logger.warning(f"TMDB rating fetch failed for {media_type}/{tmdb_id}: {e}")
             return None
 
     def fetch_tmdb_episode_rating(self, tmdb_id: int, season: int, episode: int) -> Optional[Dict]:
@@ -107,7 +124,7 @@ class RatingFetcher:
                 'source': 'tmdb'
             }
         except Exception as e:
-            print(f"✗ Error fetching episode rating: {e}")
+            logger.warning(f"TMDB episode rating fetch failed: {e}")
             return None
 
     def fetch_omdb_rating(self, imdb_id: str) -> Optional[Dict]:
@@ -121,18 +138,18 @@ class RatingFetcher:
             Dict with imdb_rating, rt_audience, rt_critic, or None if error
         """
         if not self.omdb_api_key:
-            print("⚠️  OMDb API key not configured")
+            logger.debug("OMDb API key not configured")
             return None
 
         url = f"{self.OMDB_BASE_URL}?i={imdb_id}&apikey={self.omdb_api_key}"
 
         try:
-            response = requests.get(url, timeout=self.REQUEST_TIMEOUT)
+            response = self.session.get(url, timeout=self.REQUEST_TIMEOUT)
             response.raise_for_status()
             data = response.json()
 
             if data.get('Response') == 'False':
-                print(f"✗ OMDb error: {data.get('Error')}")
+                logger.debug(f"OMDb returned no data for {imdb_id}: {data.get('Error')}")
                 return None
 
             # Parse ratings
@@ -151,7 +168,7 @@ class RatingFetcher:
 
             return result
         except Exception as e:
-            print(f"✗ Error fetching OMDb rating: {e}")
+            logger.warning(f"OMDb rating fetch failed for {imdb_id}: {e}")
             return None
 
     def fetch_mdblist_rating(self, imdb_id: str) -> Optional[Dict]:
@@ -165,13 +182,13 @@ class RatingFetcher:
             Dict with rt_critic, rt_audience scores, or None if error
         """
         if not self.mdblist_api_key:
-            print("⚠️  MDBList API key not configured")
+            logger.debug("MDBList API key not configured")
             return None
 
         url = f"{self.MDBLIST_BASE_URL}/?apikey={self.mdblist_api_key}&i={imdb_id}"
 
         try:
-            response = requests.get(url, timeout=self.REQUEST_TIMEOUT)
+            response = self.session.get(url, timeout=self.REQUEST_TIMEOUT)
             response.raise_for_status()
             data = response.json()
 
@@ -192,7 +209,7 @@ class RatingFetcher:
             return result if result else None
 
         except Exception as e:
-            print(f"✗ Error fetching MDBList rating: {e}")
+            logger.warning(f"MDBList rating fetch failed for {imdb_id}: {e}")
             return None
 
     def fetch_tmdb_tv_status_by_imdb_id(self, imdb_id: str) -> Optional[Dict]:
@@ -219,7 +236,7 @@ class RatingFetcher:
             details['tmdb_id'] = tmdb_id
             return details
         except Exception as e:
-            print(f"✗ Error resolving TMDB TV status by IMDb ID: {e}")
+            logger.warning(f"TMDB TV status by IMDb ID failed for {imdb_id}: {e}")
             return None
 
     def fetch_tmdb_tv_status_by_title(self, title: Optional[str], year: Optional[int] = None) -> Optional[Dict]:
@@ -253,5 +270,5 @@ class RatingFetcher:
             details['tmdb_id'] = tmdb_id
             return details
         except Exception as e:
-            print(f"✗ Error resolving TMDB TV status by title: {e}")
+            logger.warning(f"TMDB TV status by title failed for '{title}': {e}")
             return None

@@ -78,7 +78,7 @@ class PlexPosterManager:
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"Connected to Plex: {self.server.friendlyName}")
-        logger.info(f"Library: {library_name} ({len(self.library.all())} items)")
+        logger.info(f"Library: {library_name} ({self.library.totalSize} items)")
         if dry_run:
             logger.info("DRY-RUN MODE: No changes will be applied")
 
@@ -297,6 +297,12 @@ class PlexPosterManager:
             False if failed
         """
         try:
+            # Ensure full item data is loaded (ratings, guids require detail fetch)
+            try:
+                movie.reload()
+            except Exception as e:
+                logger.warning(f"⚠️  {movie.title}: Plex reload failed ({e}), using cached data")
+
             # Extract IDs - TMDB ID is optional (many TV shows don't have it)
             tmdb_id = self._extract_tmdb_id(movie.guids)
             imdb_id = self._extract_imdb_id(movie.guids)
