@@ -419,28 +419,24 @@ async def process_library_background(request: ProcessRequest):
         loop = asyncio.get_event_loop()
 
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            # Submit all items as futures
-            future_to_item = {}
-            for item in all_items:
-                if processing_state["stop_requested"]:
-                    break
-                future = loop.run_in_executor(executor, _process_single, item)
-                future_to_item[future] = item
 
-            for future in asyncio.as_completed(future_to_item):
+            async def _run_item(item):
+                """Wrap executor call to return (item, result) tuple."""
+                try:
+                    result = await loop.run_in_executor(executor, _process_single, item)
+                    return item, result
+                except Exception as e:
+                    logger.error(f"✗ {item.title}: Worker error - {e}")
+                    return item, False
+
+            tasks = [_run_item(item) for item in all_items]
+
+            for coro in asyncio.as_completed(tasks):
                 if processing_state["stop_requested"]:
-                    # Cancel remaining futures
-                    for f in future_to_item:
-                        f.cancel()
                     logger.info(f"Stop requested - stopping processing")
                     break
 
-                item = future_to_item[future]
-                try:
-                    result = await future
-                except Exception as e:
-                    logger.error(f"✗ {item.title}: Worker error - {e}")
-                    result = False
+                item, result = await coro
 
                 progress_counter += 1
                 processing_state["progress"] = progress_counter
