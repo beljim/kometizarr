@@ -3,14 +3,17 @@ Kometizarr Web UI - FastAPI Backend
 """
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
+from pathlib import Path
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
 import os
 import sys
+import threading
 from datetime import datetime
 
 # Add kometizarr to path
@@ -1241,7 +1244,6 @@ async def get_library_studios(library_name: str):
 # Settings, Fresh Posters, Delete Backups, Cron, Webhook
 # ─────────────────────────────────────────────────────────────────────────────
 
-from pathlib import Path
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
