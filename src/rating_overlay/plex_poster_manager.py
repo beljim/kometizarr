@@ -371,14 +371,12 @@ class PlexPosterManager:
                         except:
                             pass
 
-                # Get RT scores from MDBList if not already from Plex
-                if 'rt_critic' not in ratings or 'rt_audience' not in ratings:
-                    mdb_data = self.rating_fetcher.fetch_mdblist_rating(imdb_id)
-                    if mdb_data:
-                        if 'rt_critic' not in ratings and mdb_data.get('rt_critic'):
-                            ratings['rt_critic'] = mdb_data['rt_critic']
-                        if 'rt_audience' not in ratings and mdb_data.get('rt_audience'):
-                            ratings['rt_audience'] = mdb_data['rt_audience']
+                # Get all available ratings from MDBList (IMDb, TMDB, RT critic, RT audience)
+                mdb_data = self.rating_fetcher.fetch_mdblist_rating(imdb_id)
+                if mdb_data:
+                    for key in ('imdb', 'tmdb', 'rt_critic', 'rt_audience'):
+                        if key not in ratings and mdb_data.get(key):
+                            ratings[key] = mdb_data[key]
 
             # Filter ratings based on user preferences (if specified)
             if self.rating_sources:

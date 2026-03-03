@@ -34,6 +34,14 @@ class RatingFetcher:
         self.omdb_api_key = omdb_api_key
         self.mdblist_api_key = mdblist_api_key
 
+        # Detect placeholder keys that aren't real
+        _placeholders = {'', 'YOUR_OMDB_KEY', 'YOUR_OMDB_API_KEY', 'YOUR_OMDB_API_KEY_HERE'}
+        if self.omdb_api_key and self.omdb_api_key.strip().upper() in {p.upper() for p in _placeholders}:
+            self.omdb_api_key = None
+        _mdb_placeholders = {'', 'YOUR_MDBLIST_KEY', 'YOUR_MDBLIST_API_KEY', 'YOUR_MDBLIST_API_KEY_HERE'}
+        if self.mdblist_api_key and self.mdblist_api_key.strip().upper() in {p.upper() for p in _mdb_placeholders}:
+            self.mdblist_api_key = None
+
         # Create a session with automatic retry for transient failures
         self.session = requests.Session()
         retry_strategy = Retry(
@@ -173,13 +181,13 @@ class RatingFetcher:
 
     def fetch_mdblist_rating(self, imdb_id: str) -> Optional[Dict]:
         """
-        Fetch RT ratings from MDBList (includes both critic and audience scores)
+        Fetch ratings from MDBList (IMDb, TMDB, RT critic & audience)
 
         Args:
             imdb_id: IMDb ID (e.g., 'tt0111161')
 
         Returns:
-            Dict with rt_critic, rt_audience scores, or None if error
+            Dict with available ratings, or None if error
         """
         if not self.mdblist_api_key:
             logger.debug("MDBList API key not configured")
@@ -194,14 +202,20 @@ class RatingFetcher:
 
             result = {}
 
-            # MDBList returns ratings in format like: ratings[0].source = "tomatoes", ratings[0].value = 85
+            # MDBList returns ratings in format like: ratings[0].source = "imdb", ratings[0].value = 75
             ratings_data = data.get('ratings', [])
 
             for rating in ratings_data:
                 source = rating.get('source', '').lower()
                 value = rating.get('value')
 
-                if source == 'tomatoes' and value:
+                if source == 'imdb' and value:
+                    # MDBList IMDb score is 0-100, convert to 0-10 scale
+                    result['imdb'] = round(float(value) / 10, 1)
+                elif source == 'tmdb' and value:
+                    # MDBList TMDB score is 0-100, convert to 0-10 scale
+                    result['tmdb'] = round(float(value) / 10, 1)
+                elif source == 'tomatoes' and value:
                     result['rt_critic'] = float(value)
                 elif source == 'tomatoesaudience' and value:
                     result['rt_audience'] = float(value)
