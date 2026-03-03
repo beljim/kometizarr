@@ -19,15 +19,16 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [position, setPosition] = useState('northwest')  // Keep for backward compat display
+  const DEFAULT_BADGE_POSITIONS = {
+    tmdb: { x: 2, y: 2 },           // Top-left
+    imdb: { x: 70, y: 2 },          // Top-right (70% across to fit ~12% badge + margin)
+    rt_critic: { x: 2, y: 78 },      // Bottom-left (78% down to fit ~20% badge + margin)
+    rt_audience: { x: 70, y: 78 }    // Bottom-right
+  }
+  const DEFAULT_RATING_SOURCES = { tmdb: true, imdb: true, rt_critic: true, rt_audience: true }
   const [badgePositions, setBadgePositions] = useState(() => {
-    // Load from localStorage or set smart defaults (4 corners)
     const saved = localStorage.getItem('kometizarr_badge_positions')
-    return saved ? JSON.parse(saved) : {
-      tmdb: { x: 2, y: 2 },           // Top-left
-      imdb: { x: 70, y: 2 },          // Top-right (70% across to fit ~12% badge + margin)
-      rt_critic: { x: 2, y: 78 },      // Bottom-left (78% down to fit ~20% badge + margin)
-      rt_audience: { x: 70, y: 78 }    // Bottom-right
-    }
+    return saved ? JSON.parse(saved) : DEFAULT_BADGE_POSITIONS
   })
   const [activeDragBadge, setActiveDragBadge] = useState(null)  // Which badge is being dragged
   const [alignmentGuides, setAlignmentGuides] = useState([])  // Visual alignment guides
@@ -36,14 +37,8 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
   const [previewResults, setPreviewResults] = useState(null)  // null = closed, [] = loading/empty
   const [previewDebug, setPreviewDebug] = useState(null)
   const [ratingSources, setRatingSources] = useState(() => {
-    // Load from localStorage or default to all enabled
     const saved = localStorage.getItem('kometizarr_rating_sources')
-    return saved ? JSON.parse(saved) : {
-      tmdb: true,
-      imdb: true,
-      rt_critic: true,
-      rt_audience: true
-    }
+    return saved ? JSON.parse(saved) : DEFAULT_RATING_SOURCES
   })
   const [badgeStyle, setBadgeStyle] = useState(() => {
     // Load from localStorage or use defaults
@@ -78,12 +73,26 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
 
   useEffect(() => {
     fetchLibraries()
-    // Sync localStorage badge settings to server on mount so webhook/cron work
-    // without requiring the user to manually interact with the UI after upgrading
+    // Load badge settings from server (source of truth for cross-device sync)
+    // Fall back to localStorage / defaults if server has no values yet
     fetch('/api/settings')
       .then(r => r.json())
       .then(s => {
-        if (!s.badge_positions || !s.badge_style) {
+        if (s.badge_positions) {
+          setBadgePositions(s.badge_positions)
+          localStorage.setItem('kometizarr_badge_positions', JSON.stringify(s.badge_positions))
+        }
+        if (s.badge_style) {
+          const merged = { ...DEFAULT_BADGE_STYLE, ...s.badge_style }
+          setBadgeStyle(merged)
+          localStorage.setItem('kometizarr_badge_style', JSON.stringify(merged))
+        }
+        if (s.rating_sources) {
+          setRatingSources(s.rating_sources)
+          localStorage.setItem('kometizarr_rating_sources', JSON.stringify(s.rating_sources))
+        }
+        // If server has no badge settings yet, push current (localStorage/defaults) up
+        if (!s.badge_positions || !s.badge_style || !s.rating_sources) {
           persistBadgeSettings({ badge_positions: badgePositions, badge_style: badgeStyle, rating_sources: ratingSources })
         }
       })
@@ -104,14 +113,31 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
         setLibraries(data.libraries)
         if (data.libraries.length > 0) {
           setSelectedLibrary(data.libraries[0])
-          // Restore previously selected libraries from localStorage
-          const saved = localStorage.getItem('kometizarr_selected_libraries')
-          if (saved) {
-            try {
-              const parsed = JSON.parse(saved)
-              const valid = parsed.filter(n => data.libraries.some(l => l.name === n))
+          // Restore selected libraries from server, fall back to localStorage
+          try {
+            const settingsRes = await fetch('/api/settings')
+            const settings = await settingsRes.json()
+            if (settings.selected_libraries && Array.isArray(settings.selected_libraries)) {
+              const valid = settings.selected_libraries.filter(n => data.libraries.some(l => l.name === n))
               setSelectedLibraries(valid)
-            } catch { setSelectedLibraries([]) }
+              localStorage.setItem('kometizarr_selected_libraries', JSON.stringify(valid))
+            } else {
+              const saved = localStorage.getItem('kometizarr_selected_libraries')
+              if (saved) {
+                const parsed = JSON.parse(saved)
+                const valid = parsed.filter(n => data.libraries.some(l => l.name === n))
+                setSelectedLibraries(valid)
+              }
+            }
+          } catch {
+            const saved = localStorage.getItem('kometizarr_selected_libraries')
+            if (saved) {
+              try {
+                const parsed = JSON.parse(saved)
+                const valid = parsed.filter(n => data.libraries.some(l => l.name === n))
+                setSelectedLibraries(valid)
+              } catch { setSelectedLibraries([]) }
+            }
           }
         }
       }
@@ -137,6 +163,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
     setSelectedLibraries(prev => {
       const next = prev.includes(lib.name) ? prev.filter(n => n !== lib.name) : [...prev, lib.name]
       localStorage.setItem('kometizarr_selected_libraries', JSON.stringify(next))
+      persistBadgeSettings({ selected_libraries: next })
       return next
     })
     if (onLibrarySelect) onLibrarySelect(lib)
@@ -428,6 +455,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                   const next = selectedLibraries.length === libraries.length ? [] : libraries.map(l => l.name)
                   setSelectedLibraries(next)
                   localStorage.setItem('kometizarr_selected_libraries', JSON.stringify(next))
+                  persistBadgeSettings({ selected_libraries: next })
                 }
               }
               className="text-xs text-gray-400 hover:text-gray-200 transition"
