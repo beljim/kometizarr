@@ -75,20 +75,31 @@ class PosterBackupManager:
         original_path = backup_path / 'poster_original.jpg'
         return original_path.exists()
 
-    def has_overlay(self, library_name: str, item_title: str) -> bool:
+    def has_overlay(self, library_name: str, item_title: str, rating_key: int = None) -> bool:
         """
         Check if overlay version exists (item already processed)
 
         Args:
             library_name: Plex library name
             item_title: Item title
+            rating_key: Plex ratingKey to verify backup belongs to the same item
 
         Returns:
-            True if overlay backup exists
+            True if overlay backup exists for this specific item
         """
         backup_path = self._get_backup_path(library_name, item_title)
         overlay_path = backup_path / 'poster_overlay.jpg'
-        return overlay_path.exists()
+        if not overlay_path.exists():
+            return False
+
+        # If rating_key provided, verify the backup is for the same Plex item
+        if rating_key is not None:
+            metadata = self._load_metadata(backup_path)
+            if metadata and metadata.get('rating_key') and int(metadata['rating_key']) != int(rating_key):
+                logger.info(f"🔄 {item_title}: Backup exists but for different item (stored ratingKey={metadata.get('rating_key')}, current={rating_key}), will reprocess")
+                return False
+
+        return True
 
     def backup_poster(
         self,

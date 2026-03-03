@@ -308,7 +308,7 @@ class PlexPosterManager:
                 return False
 
             # Skip if overlay already applied (unless force=True)
-            if not force and self.backup_manager.has_overlay(self.library_name, movie.title):
+            if not force and self.backup_manager.has_overlay(self.library_name, movie.title, rating_key=movie.ratingKey):
                 logger.debug(f"⏭️  {movie.title}: Already has overlay, skipping")
                 return None  # Return None to indicate skip (not success or failure)
 
