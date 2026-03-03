@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
 import os
@@ -88,6 +89,7 @@ class ProcessRequest(BaseModel):
     rating_sources: Optional[Dict[str, bool]] = None  # Which ratings to show
     badge_style: Optional[Dict[str, Any]] = None  # Badge styling options
     rating_key: Optional[str] = None  # If set, process only this specific Plex item
+    workers: int = 1  # Number of concurrent workers (1-10)
 
 
 class ProcessBatchRequest(BaseModel):
@@ -97,6 +99,7 @@ class ProcessBatchRequest(BaseModel):
     force: bool = False
     rating_sources: Optional[Dict[str, bool]] = None
     badge_style: Optional[Dict[str, Any]] = None
+    workers: int = 1
 
 
 class LibraryStats(BaseModel):
@@ -205,6 +208,7 @@ async def start_processing_batch(request: ProcessBatchRequest):
                 force=request.force,
                 rating_sources=request.rating_sources,
                 badge_style=request.badge_style,
+                workers=request.workers,
             )
             await process_library_background(single)
 
@@ -395,46 +399,63 @@ async def process_library_background(request: ProcessRequest):
 
         processing_state["total"] = len(all_items)
 
-        logger.info(f"🎬 Processing started: {request.library_name} ({len(all_items)} items)")
+        num_workers = max(1, min(10, request.workers))
+        logger.info(f"🎬 Processing started: {request.library_name} ({len(all_items)} items, {num_workers} workers)")
 
-        # Process each item
-        for i, item in enumerate(all_items, 1):
-            # Check if stop was requested
-            if processing_state["stop_requested"]:
-                logger.info(f"Stop requested - stopping processing at item {i}/{processing_state['total']}")
-                break
-
-            processing_state["progress"] = i
-            processing_state["current_item"] = item.title
-
-            # Determine positioning mode
-            # 1. If badge_positions provided, use 4-badge mode
-            # 2. Otherwise, use legacy unified badge with position (string or dict)
+        def _process_single(item):
+            """Process a single item in a thread worker."""
             if request.badge_positions:
-                result = manager.process_movie(
+                return manager.process_movie(
                     item,
-                    position=request.position,  # Not used in 4-badge mode, but kept for compat
+                    position=request.position,
                     force=request.force,
                     badge_positions=request.badge_positions
                 )
             else:
-                # Legacy unified badge mode
                 position_param = request.badge_position if request.badge_position else request.position
-                result = manager.process_movie(item, position=position_param, force=request.force)
+                return manager.process_movie(item, position=position_param, force=request.force)
 
-            # Handle three-state return: True=success, None=skip, False=fail
-            if result is None:
-                processing_state["skipped"] += 1
-            elif result:
-                processing_state["success"] += 1
-            else:
-                processing_state["failed"] += 1
+        progress_counter = 0
+        loop = asyncio.get_event_loop()
 
-            # Broadcast progress to all WebSocket connections
-            await broadcast_progress()
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            # Submit all items as futures
+            future_to_item = {}
+            for item in all_items:
+                if processing_state["stop_requested"]:
+                    break
+                future = loop.run_in_executor(executor, _process_single, item)
+                future_to_item[future] = item
 
-            # Rate limiting
-            await asyncio.sleep(0.3)
+            for future in asyncio.as_completed(future_to_item):
+                if processing_state["stop_requested"]:
+                    # Cancel remaining futures
+                    for f in future_to_item:
+                        f.cancel()
+                    logger.info(f"Stop requested - stopping processing")
+                    break
+
+                item = future_to_item[future]
+                try:
+                    result = await future
+                except Exception as e:
+                    logger.error(f"✗ {item.title}: Worker error - {e}")
+                    result = False
+
+                progress_counter += 1
+                processing_state["progress"] = progress_counter
+                processing_state["current_item"] = item.title
+
+                # Handle three-state return: True=success, None=skip, False=fail
+                if result is None:
+                    processing_state["skipped"] += 1
+                elif result:
+                    processing_state["success"] += 1
+                else:
+                    processing_state["failed"] += 1
+
+                # Broadcast progress to all WebSocket connections
+                await broadcast_progress()
 
         processing_state["is_processing"] = False
         processing_state["stop_requested"] = False

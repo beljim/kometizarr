@@ -33,6 +33,10 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
   const [activeDragBadge, setActiveDragBadge] = useState(null)  // Which badge is being dragged
   const [alignmentGuides, setAlignmentGuides] = useState([])  // Visual alignment guides
   const [force, setForce] = useState(false)
+  const [workers, setWorkers] = useState(() => {
+    const saved = localStorage.getItem('kometizarr_workers')
+    return saved ? parseInt(saved, 10) : 4
+  })
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewResults, setPreviewResults] = useState(null)  // null = closed, [] = loading/empty
   const [previewDebug, setPreviewDebug] = useState(null)
@@ -338,6 +342,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
       force,
       rating_sources: ratingSources,
       badge_style: badgeStyle,
+      workers,
     }
 
     try {
@@ -933,6 +938,28 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
               ℹ️ Uses original posters from backup to apply fresh overlays with updated ratings. Original backups are never overwritten.
             </div>
           )}
+
+          {/* Workers */}
+          <div>
+            <label className="block text-sm font-medium mb-1">Concurrent Workers: {workers}</label>
+            <input
+              type="range"
+              min="1"
+              max="10"
+              value={workers}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10)
+                setWorkers(v)
+                localStorage.setItem('kometizarr_workers', v)
+              }}
+              className="w-full"
+            />
+            <div className="flex justify-between text-xs text-gray-500 mt-1">
+              <span>1 (safe)</span>
+              <span>5</span>
+              <span>10 (fast)</span>
+            </div>
+          </div>
 
           {/* Rating Sources */}
           <div>
