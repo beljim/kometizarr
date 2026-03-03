@@ -298,10 +298,16 @@ class PlexPosterManager:
         """
         try:
             # Ensure full item data is loaded (ratings, guids require detail fetch)
-            try:
-                movie.reload()
-            except Exception as e:
-                logger.warning(f"⚠️  {movie.title}: Plex reload failed ({e}), using cached data")
+            for attempt in range(2):
+                try:
+                    movie.reload()
+                    break
+                except Exception as e:
+                    if attempt == 0:
+                        import time
+                        time.sleep(1)
+                    else:
+                        logger.warning(f"⚠️  {movie.title}: Plex reload failed after retry ({e}), using cached data")
 
             # Extract IDs - TMDB ID is optional (many TV shows don't have it)
             tmdb_id = self._extract_tmdb_id(movie.guids)
@@ -336,8 +342,12 @@ class PlexPosterManager:
                 if rating_data:
                     tmdb_status = rating_data.get('status')
 
-                if rating_data and 'tmdb' not in ratings and rating_data.get('rating', 0) > 0:
-                    ratings['tmdb'] = rating_data['rating']
+                if rating_data and 'tmdb' not in ratings:
+                    tmdb_rating = rating_data.get('rating', 0)
+                    if tmdb_rating > 0:
+                        ratings['tmdb'] = tmdb_rating
+                    elif rating_data.get('vote_count', 0) == 0:
+                        logger.debug(f"  {movie.title}: TMDB has no votes yet, skipping TMDB rating")
                 # Don't fail here - continue to check other rating sources
 
             # Use Plex's IMDb rating if available
@@ -377,12 +387,19 @@ class PlexPosterManager:
                     if self.rating_sources.get(k, True)  # Default to True if not specified
                 }
 
-            # Check if we have ANY ratings - fail only if all sources are empty/zero
-            # Exception: if status overlay is configured, proceed anyway (show may be unrated but still needs status stamp)
-            if not ratings or all(v == 0 for v in ratings.values()):
+            # Remove zero-value ratings (no votes yet = nothing meaningful to display)
+            ratings = {k: v for k, v in ratings.items() if v and v > 0}
+
+            # Check if we have ANY ratings to display
+            if not ratings:
                 selected_status = str((self.badge_style or {}).get('status_overlay', 'none')).strip().lower()
                 if selected_status == 'none':
-                    logger.warning(f"⚠️  {movie.title}: No ratings available from any source")
+                    logger.warning(
+                        f"⚠️  {movie.title}: No ratings found "
+                        f"(tmdb_id={tmdb_id}, imdb_id={imdb_id}, "
+                        f"plex_ratings={plex_ratings}, "
+                        f"enabled_sources={self.rating_sources})"
+                    )
                     return False
                 logger.info(f"⚠️  {movie.title}: No ratings but status overlay enabled, proceeding")
 
