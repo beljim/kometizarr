@@ -79,6 +79,18 @@ BADGE_TEMPLATES = {
         'border': False,
         'shadow': True,
     },
+    'text_only': {
+        'label': 'Text Only',
+        'description': 'Rating number only with colored underline, no logo or background',
+        'corner_radius_pct': 0,
+        'aspect_ratio': 0.6,
+        'logo_section_pct': 0.0,
+        'gradient': False,
+        'border': False,
+        'shadow': True,
+        'no_background': True,
+        'text_only': True,
+    },
 }
 
 
@@ -301,7 +313,9 @@ class MultiRatingBadge:
 
         # Apply custom styling or use defaults
         style = badge_style or {}
-        badge_size_percent = style.get('individual_badge_size', 12) / 100  # 12% of poster width by default
+        # Per-badge size override: check per_badge_size dict first, fall back to global
+        per_badge_sizes = style.get('per_badge_size', {})
+        badge_size_percent = per_badge_sizes.get(source, style.get('individual_badge_size', 12)) / 100
         font_multiplier = style.get('font_size_multiplier', 1.0)
         logo_multiplier = style.get('logo_size_multiplier', 1.0)
         rating_color_hex = style.get('rating_color', '#FFD700')  # Gold
@@ -314,9 +328,12 @@ class MultiRatingBadge:
         template_name = style.get('badge_template', 'default')
         template = BADGE_TEMPLATES.get(template_name, BADGE_TEMPLATES['default'])
 
+        # Badge aspect ratio: user override or template default
+        aspect_ratio = style.get('badge_aspect_ratio', template.get('aspect_ratio', 1.4))
+
         # Badge size - compact square-ish badge
         badge_width = int(poster_width * badge_size_percent)
-        badge_height = int(badge_width * template.get('aspect_ratio', 1.4))
+        badge_height = int(badge_width * aspect_ratio)
 
         # Create badge with transparent background
         badge = Image.new('RGBA', (badge_width, badge_height), (0, 0, 0, 0))
@@ -356,6 +373,52 @@ class MultiRatingBadge:
                     width=border_width
                 )
 
+        # Text-only template: just the rating number with a colored source dot
+        if template.get('text_only', False):
+            font_size = int(badge_width * 0.55 * font_multiplier)
+            font_family = style.get('font_family', 'DejaVu Sans Bold')
+            font_path = self.FONT_PATHS.get(font_family, self.FONT_PATHS['DejaVu Sans Bold'])
+            try:
+                font_rating = ImageFont.truetype(font_path, font_size)
+                font_percent = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", int(font_size * 0.6))
+            except Exception:
+                font_rating = ImageFont.load_default()
+                font_percent = ImageFont.load_default()
+
+            if source in ['rt_critic', 'rt_audience']:
+                rating_text = f"{int(rating)}%"
+            else:
+                rating_text = f"{rating:.1f}"
+
+            center_x = badge_width // 2
+            center_y = int(badge_height * 0.45)
+
+            self._draw_text_with_shadow(draw, (center_x, center_y), rating_text, font_rating, rating_color,
+                                        shadow_offset=max(2, int(badge_width * 0.02)), anchor="mm")
+
+            # Colored source dot/underline
+            SOURCE_DOT_COLORS = {
+                'tmdb': (74, 158, 255, 255), 'imdb': (245, 197, 24, 255),
+                'rt_critic': (250, 50, 10, 255), 'rt_audience': (250, 50, 10, 200),
+            }
+            dot_color = SOURCE_DOT_COLORS.get(source, rating_color)
+            dot_y = int(badge_height * 0.78)
+            dot_w = int(badge_width * 0.35)
+            dot_h = max(2, int(badge_height * 0.04))
+            draw.rounded_rectangle(
+                [center_x - dot_w // 2, dot_y, center_x + dot_w // 2, dot_y + dot_h],
+                radius=dot_h, fill=dot_color
+            )
+
+            # Apply badge shadow if enabled
+            if style.get('badge_shadow', False):
+                shadow = Image.new('RGBA', (badge_width + 8, badge_height + 8), (0, 0, 0, 0))
+                shadow.paste(Image.new('RGBA', (badge_width, badge_height), (0, 0, 0, 80)), (4, 4))
+                shadow.paste(badge, (0, 0), badge)
+                return shadow
+
+            return badge
+
         # For RT scores, dynamically select logo based on score
         logo_key = source
         if source == 'rt_critic':
@@ -385,16 +448,16 @@ class MultiRatingBadge:
 
             # Resize logo maintaining aspect ratio
             orig_width, orig_height = logo.size
-            aspect_ratio = orig_width / orig_height
+            logo_ar = orig_width / orig_height
 
-            if aspect_ratio > 1:
+            if logo_ar > 1:
                 # Wider than tall
                 logo_width = max_logo_size
-                logo_height = int(max_logo_size / aspect_ratio)
+                logo_height = int(max_logo_size / logo_ar)
             else:
                 # Taller than wide or square
                 logo_height = max_logo_size
-                logo_width = int(max_logo_size * aspect_ratio)
+                logo_width = int(max_logo_size * logo_ar)
 
             logo_resized = logo.resize((logo_width, logo_height), Image.Resampling.LANCZOS)
 
@@ -473,6 +536,16 @@ class MultiRatingBadge:
                 shadow_offset=max(2, int(badge_width * 0.02)),
                 anchor="mm"  # Middle-middle anchor
             )
+
+        # Apply badge drop shadow if enabled
+        if style.get('badge_shadow', False):
+            shadow_offset = max(3, int(badge_width * 0.03))
+            shadow = Image.new('RGBA', (badge_width + shadow_offset * 2, badge_height + shadow_offset * 2), (0, 0, 0, 0))
+            # Draw shadow layer
+            shadow_layer = Image.new('RGBA', (badge_width, badge_height), (0, 0, 0, 80))
+            shadow.paste(shadow_layer, (shadow_offset, shadow_offset))
+            shadow.paste(badge, (0, 0), badge)
+            return shadow
 
         return badge
 
@@ -665,10 +738,21 @@ class MultiRatingBadge:
 
         # MODE 1: Individual badges (new 4-badge system)
         if badge_positions:
+            # Rating threshold: optionally hide badges below a minimum rating
+            rating_threshold = (badge_style or {}).get('rating_threshold', 0)
+            threshold_hide = (badge_style or {}).get('threshold_hide', False)
+
             for source, rating in ratings.items():
                 # Check if this source is enabled (key exists in badge_positions)
                 if source not in badge_positions:
                     continue
+
+                # Apply rating threshold filter
+                if threshold_hide and rating_threshold > 0:
+                    # Normalize: RT is 0-100, TMDB/IMDb is 0-10
+                    normalized = rating if source in ['rt_critic', 'rt_audience'] else rating * 10
+                    if normalized < rating_threshold:
+                        continue
 
                 pos = badge_positions[source]
                 x_percent = pos.get('x', 5)
@@ -689,7 +773,7 @@ class MultiRatingBadge:
                 # Composite badge onto poster
                 poster.paste(badge, (badge_x, badge_y), badge)
 
-            self._apply_status_overlay(poster, status_overlay, status_position, status_rotation, status_text_size, status_padding_h, status_padding_v)
+            self._apply_status_overlay(poster, status_overlay, status_position, status_rotation, status_text_size, status_padding_h, status_padding_v, badge_style=badge_style)
 
             # Save
             poster_rgb = poster.convert('RGB')
@@ -737,7 +821,7 @@ class MultiRatingBadge:
             # Composite badge onto poster
             poster.paste(badge, (badge_x, badge_y), badge)
 
-            self._apply_status_overlay(poster, status_overlay, status_position, status_rotation, status_text_size, status_padding_h, status_padding_v)
+            self._apply_status_overlay(poster, status_overlay, status_position, status_rotation, status_text_size, status_padding_h, status_padding_v, badge_style=badge_style)
 
             # Save
             poster_rgb = poster.convert('RGB')
@@ -749,16 +833,28 @@ class MultiRatingBadge:
 
             return poster
 
-    def _apply_status_overlay(self, poster: Image.Image, status_overlay: Optional[str], status_position = 'center', status_rotation: int = 0, status_text_size: int = 12, status_padding_h: float = 1.0, status_padding_v: float = 1.0):
+    def _apply_status_overlay(self, poster: Image.Image, status_overlay: Optional[str], status_position = 'center', status_rotation: int = 0, status_text_size: int = 12, status_padding_h: float = 1.0, status_padding_v: float = 1.0, badge_style: Optional[Dict[str, Any]] = None):
         """Apply a status text overlay with dark background on a poster."""
         if not status_overlay:
             return
 
         status_key = status_overlay.lower().strip()
-        if status_key == 'none' or status_key not in self.STATUS_STYLES:
+        if status_key == 'none':
             return
 
-        style = self.STATUS_STYLES[status_key]
+        # Check built-in styles first, then custom statuses
+        bstyle = badge_style or {}
+        custom_statuses = bstyle.get('custom_statuses', {})
+        if status_key in self.STATUS_STYLES:
+            style = self.STATUS_STYLES[status_key]
+        elif status_key in custom_statuses:
+            cs = custom_statuses[status_key]
+            label = cs.get('label', status_key.upper())
+            color_hex = cs.get('color', '#9ca3af')
+            r, g, b = (int(color_hex.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+            style = {'label': label, 'color': (r, g, b, 255)}
+        else:
+            return
         poster_width, poster_height = poster.size
         font_size = max(24, int(min(poster_width, poster_height) * (status_text_size / 100)))
 
@@ -799,14 +895,18 @@ class MultiRatingBadge:
         pad_x = int((poster_width / 2) * (status_padding_h / 10.0))
         pad_y = int(th * 0.35 * status_padding_v)
 
-        # Dark background pill
+        # Dark background pill — customizable color, opacity, corner radius
+        status_bg_hex = bstyle.get('status_bg_color', '#000000')
+        bg_r, bg_g, bg_b = (int(status_bg_hex.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+        status_bg_opacity = bstyle.get('status_bg_opacity', 180)
+        corner_radius_mult = bstyle.get('status_corner_radius', 0.3)
         bg_rect = [
             tcx - tw // 2 - pad_x,
             tcy - th // 2 - pad_y,
             tcx + tw // 2 + pad_x,
             tcy + th // 2 + pad_y,
         ]
-        draw.rounded_rectangle(bg_rect, radius=int(th * 0.3), fill=(0, 0, 0, 180))
+        draw.rounded_rectangle(bg_rect, radius=int(th * corner_radius_mult), fill=(bg_r, bg_g, bg_b, int(status_bg_opacity)))
 
         # Text
         draw.text(

@@ -291,6 +291,13 @@ class PlexPosterManager:
             effective_style['status_overlay'] = 'none'
             return effective_style
 
+        # Check per-show status override first
+        status_overrides = effective_style.get('status_overrides', {}).get(self.library_name, {})
+        safe_title = "".join(c for c in item.title if c.isalnum() or c in (' ', '-', '_')).strip()
+        if safe_title in status_overrides:
+            effective_style['status_overlay'] = status_overrides[safe_title]
+            return effective_style
+
         if selected_status != 'auto':
             return effective_style
 

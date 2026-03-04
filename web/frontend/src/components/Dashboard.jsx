@@ -7,13 +7,23 @@ const DEFAULT_BADGE_STYLE = {
   rating_color: '#FFD700',    // Gold color (default)
   background_opacity: 128,    // 0-255, default 128 (50%)
   font_family: 'DejaVu Sans Bold',  // Font family
-  badge_template: 'default',  // Badge template (default, minimal, pill, bordered, gradient, square)
-  status_overlay: 'none', // none | auto | current | renewed | cancelled
+  badge_template: 'default',  // Badge template (default, minimal, pill, bordered, gradient, square, text_only)
+  badge_aspect_ratio: 1.4,    // Badge height = width * aspect_ratio (0.5 – 2.0)
+  badge_shadow: false,        // Drop shadow behind badges
+  per_badge_size: {},          // Per-source size overrides { tmdb: 15, imdb: 10, ... }
+  rating_threshold: 0,        // Hide badges below this score (0 = off, 1-100 scale)
+  threshold_hide: false,      // Enable threshold filtering
+  status_overlay: 'none', // none | auto | current | renewed | cancelled | custom
   status_position: { x: 50, y: 50 }, // {x, y} percentage — draggable like badges
   status_rotation: 0, // 0 = horizontal, 90 = vertical (top-to-bottom), -90 = vertical (bottom-to-top)
   status_text_size: 12, // % of poster min dimension (default 12%)
   status_padding_h: 1.0, // horizontal padding multiplier (0.2 – 10.0, high = full poster width)
   status_padding_v: 1.0, // vertical padding multiplier (0.2 – 3.0)
+  status_bg_color: '#000000', // Status pill background color
+  status_bg_opacity: 180,     // Status pill background opacity (0-255)
+  status_corner_radius: 0.3,  // Status pill corner radius multiplier (0 – 1.0)
+  custom_statuses: {},         // Custom status labels: { key: { label, color } }
+  grid_snap: 5,               // Grid snap percentage (1, 2, 5, 10, or 0 for free)
 }
 
 function Dashboard({ onStartProcessing, onLibrarySelect }) {
@@ -78,7 +88,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
     localStorage.setItem('kometizarr_per_type_sources', JSON.stringify(updated))
   }
   const [activeDragBadge, setActiveDragBadge] = useState(null)  // Which badge is being dragged
-  const GRID_SNAP = 5  // Snap to 5% grid
+  const GRID_SNAP = badgeStyle.grid_snap ?? 5  // Dynamic snap from settings
   const [force, setForce] = useState(false)
   const [workers, setWorkers] = useState(() => {
     const saved = localStorage.getItem('kometizarr_workers')
@@ -87,6 +97,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewResults, setPreviewResults] = useState(null)  // null = closed, [] = loading/empty
   const [previewDebug, setPreviewDebug] = useState(null)
+  const [samplePoster, setSamplePoster] = useState(null)  // base64 poster image for SVG preview bg
 
   // Helper: get settings for a specific library type
   const getSettingsForType = (libType) => {
@@ -177,6 +188,14 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
   useEffect(() => {
     if (selectedLibrary) {
       fetchStats(selectedLibrary.name)
+      // Fetch a sample poster for the SVG preview background
+      fetch(`/api/sample-poster/${encodeURIComponent(selectedLibrary.name)}`)
+        .then(r => r.json())
+        .then(d => {
+          if (d.image) setSamplePoster(d.image)
+          else setSamplePoster(null)
+        })
+        .catch(() => setSamplePoster(null))
     }
   }, [selectedLibrary])
 
@@ -270,8 +289,10 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
       let xPercent = (clickX / rect.width) * 100
       let yPercent = (clickY / rect.height) * 100
       // Snap status to grid
-      xPercent = Math.round(xPercent / GRID_SNAP) * GRID_SNAP
-      yPercent = Math.round(yPercent / GRID_SNAP) * GRID_SNAP
+      if (GRID_SNAP > 0) {
+        xPercent = Math.round(xPercent / GRID_SNAP) * GRID_SNAP
+        yPercent = Math.round(yPercent / GRID_SNAP) * GRID_SNAP
+      }
       xPercent = Math.max(0, Math.min(xPercent, 100))
       yPercent = Math.max(0, Math.min(yPercent, 100))
       const newPos = { x: xPercent, y: yPercent }
@@ -287,15 +308,17 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
     const clickY = e.clientY - rect.top
 
     const badgeWidthPercent = badgeStyle.individual_badge_size || 12
-    const badgeHeightPercent = badgeWidthPercent * 1.4 * (120 / 180)
+    const badgeHeightPercent = badgeWidthPercent * (badgeStyle.badge_aspect_ratio ?? 1.4) * (120 / 180)
 
     // Center badge on cursor, then snap to grid
     let xPercent = (clickX / rect.width) * 100 - (badgeWidthPercent / 2)
     let yPercent = (clickY / rect.height) * 100 - (badgeHeightPercent / 2)
 
     // Snap to grid
-    xPercent = Math.round(xPercent / GRID_SNAP) * GRID_SNAP
-    yPercent = Math.round(yPercent / GRID_SNAP) * GRID_SNAP
+    if (GRID_SNAP > 0) {
+      xPercent = Math.round(xPercent / GRID_SNAP) * GRID_SNAP
+      yPercent = Math.round(yPercent / GRID_SNAP) * GRID_SNAP
+    }
 
     // Clamp
     xPercent = Math.max(0, Math.min(xPercent, 100))
@@ -583,8 +606,16 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseUp}
                   >
-                    {/* Poster Background */}
-                    <rect x="0" y="0" width="120" height="180" fill="#1f2937" stroke="#4b5563" strokeWidth="2" rx="3" />
+                    {/* Poster Background — real poster or gray placeholder */}
+                    <defs>
+                      <clipPath id="poster-clip"><rect x="0" y="0" width="120" height="180" rx="3" /></clipPath>
+                    </defs>
+                    {samplePoster ? (
+                      <image href={`data:image/jpeg;base64,${samplePoster}`} x="0" y="0" width="120" height="180" clipPath="url(#poster-clip)" preserveAspectRatio="xMidYMid slice" />
+                    ) : (
+                      <rect x="0" y="0" width="120" height="180" fill="#1f2937" rx="3" />
+                    )}
+                    <rect x="0" y="0" width="120" height="180" fill="none" stroke="#4b5563" strokeWidth="2" rx="3" />
 
                     {/* Status Overlay Preview — draggable */}
                     {(() => {
@@ -637,9 +668,9 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                             y={sy - bgH / 2}
                             width={bgW}
                             height={bgH}
-                            fill="#000"
-                            fillOpacity="0.7"
-                            rx="3"
+                            fill={badgeStyle.status_bg_color || '#000000'}
+                            fillOpacity={(badgeStyle.status_bg_opacity ?? 180) / 255}
+                            rx={Math.max(1, bgH * (badgeStyle.status_corner_radius ?? 0.3))}
                           />
                           <text
                             x={sx}
@@ -663,7 +694,9 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                       // Calculate badge dimensions based on style settings
                       const badgeSizePercent = badgeStyle.individual_badge_size || 12
                       const badgeWidth = (badgeSizePercent / 100) * 120  // Scale to SVG viewBox
-                      const badgeHeight = badgeWidth * 1.4  // 1.4 aspect ratio
+                      const aspectRatio = badgeStyle.badge_aspect_ratio ?? 1.4
+                      const badgeHeight = badgeWidth * aspectRatio
+                      const isTextOnly = (badgeStyle.badge_template === 'text_only')
                       const logoMultiplier = badgeStyle.logo_size_multiplier || 1.0
                       const fontMultiplier = badgeStyle.font_size_multiplier || 1.0
                       // Logo occupies top 60% of badge, scaled by logo_size_multiplier (max 2.0 → full area)
@@ -741,7 +774,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                     })()}
 
                     {/* Snap Grid */}
-                    {Array.from({ length: Math.floor(100 / GRID_SNAP) - 1 }, (_, i) => {
+                    {GRID_SNAP > 0 && Array.from({ length: Math.floor(100 / GRID_SNAP) - 1 }, (_, i) => {
                       const pct = (i + 1) * GRID_SNAP
                       const x = (pct / 100) * 120
                       const y = (pct / 100) * 180
@@ -848,6 +881,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                         <option value="bordered">Bordered</option>
                         <option value="gradient">Gradient</option>
                         <option value="square">Square</option>
+                        <option value="text_only">Text Only</option>
                       </select>
                     </div>
 
@@ -874,6 +908,103 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                         <option value="DejaVu Sans Mono Oblique">Mono Italic</option>
                       </select>
                     </div>
+                  </div>
+
+                  {/* Badge Aspect Ratio */}
+                  <div>
+                    <label className="text-xs text-gray-400 block mb-1">
+                      Aspect Ratio: {(badgeStyle.badge_aspect_ratio ?? 1.4).toFixed(1)}
+                    </label>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="2.0"
+                      step="0.1"
+                      value={badgeStyle.badge_aspect_ratio ?? 1.4}
+                      onChange={(e) => updateBadgeStyle('badge_aspect_ratio', parseFloat(e.target.value))}
+                      className="w-full accent-blue-500"
+                    />
+                  </div>
+
+                  {/* Badge Shadow + Grid Snap */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={badgeStyle.badge_shadow || false}
+                        onChange={(e) => updateBadgeStyle('badge_shadow', e.target.checked)}
+                        id="badge-shadow-cb"
+                      />
+                      <label htmlFor="badge-shadow-cb" className="text-xs text-gray-400">Badge Shadow</label>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 block mb-1">Grid Snap</label>
+                      <select
+                        value={badgeStyle.grid_snap ?? 5}
+                        onChange={(e) => updateBadgeStyle('grid_snap', parseInt(e.target.value))}
+                        className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white"
+                      >
+                        <option value={0}>Free (off)</option>
+                        <option value={1}>1%</option>
+                        <option value={2}>2%</option>
+                        <option value={5}>5% (default)</option>
+                        <option value={10}>10%</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Per-Badge Size Overrides */}
+                  <details className="group">
+                    <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-300 select-none">
+                      Per-Badge Size Overrides ▸
+                    </summary>
+                    <div className="mt-2 space-y-2 pl-1">
+                      {['tmdb', 'imdb', 'rt_critic', 'rt_audience'].map(src => (
+                        <div key={src}>
+                          <label className="text-[10px] text-gray-500 block">
+                            {src.toUpperCase()}: {(badgeStyle.per_badge_size || {})[src] || badgeStyle.individual_badge_size || 12}%
+                            {(badgeStyle.per_badge_size || {})[src] ? '' : ' (global)'}
+                          </label>
+                          <input
+                            type="range" min="5" max="40" step="1"
+                            value={(badgeStyle.per_badge_size || {})[src] || badgeStyle.individual_badge_size || 12}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value)
+                              const cur = { ...(badgeStyle.per_badge_size || {}) }
+                              if (val === (badgeStyle.individual_badge_size || 12)) delete cur[src]
+                              else cur[src] = val
+                              updateBadgeStyle('per_badge_size', cur)
+                            }}
+                            className="w-full accent-blue-500"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+
+                  {/* Rating Threshold */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={badgeStyle.threshold_hide || false}
+                        onChange={(e) => updateBadgeStyle('threshold_hide', e.target.checked)}
+                        id="threshold-cb"
+                      />
+                      <label htmlFor="threshold-cb" className="text-xs text-gray-400 whitespace-nowrap">
+                        Hide below
+                      </label>
+                    </div>
+                    <div className="flex-1">
+                      <input
+                        type="range" min="0" max="100" step="5"
+                        value={badgeStyle.rating_threshold || 0}
+                        onChange={(e) => updateBadgeStyle('rating_threshold', parseInt(e.target.value))}
+                        className="w-full accent-blue-500"
+                        disabled={!badgeStyle.threshold_hide}
+                      />
+                    </div>
+                    <span className="text-xs text-gray-500 w-8">{badgeStyle.rating_threshold || 0}%</span>
                   </div>
 
                   {/* Rating Color and Background */}
@@ -930,6 +1061,9 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                           <option value="renewed">Renewed</option>
                           <option value="ended">Ended</option>
                           <option value="cancelled">Cancelled</option>
+                          {Object.entries(badgeStyle.custom_statuses || {}).map(([key, cs]) => (
+                            <option key={key} value={key}>{cs.label}</option>
+                          ))}
                         </select>
                         <div className="mt-2 p-2 bg-gray-800/60 border border-gray-700 rounded text-xs text-gray-400 leading-relaxed">
                           <span className="text-gray-300 font-medium">Auto mode:</span> Uses Plex status first, then TMDB fallback.
@@ -996,6 +1130,100 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                               className="w-full accent-blue-500"
                             />
                           </div>
+
+                          {/* Pill Background Color + Opacity */}
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-xs text-gray-400 block mb-1">Pill Color</label>
+                              <input
+                                type="color"
+                                value={badgeStyle.status_bg_color || '#000000'}
+                                onChange={(e) => updateBadgeStyle('status_bg_color', e.target.value)}
+                                className="w-10 h-8 rounded border border-gray-700 bg-gray-800 cursor-pointer"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-400 block mb-1">
+                                Pill Opacity: {Math.round(((badgeStyle.status_bg_opacity ?? 180) / 255) * 100)}%
+                              </label>
+                              <input
+                                type="range" min="0" max="255" step="5"
+                                value={badgeStyle.status_bg_opacity ?? 180}
+                                onChange={(e) => updateBadgeStyle('status_bg_opacity', parseInt(e.target.value))}
+                                className="w-full accent-blue-500"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Pill Corner Radius */}
+                          <div>
+                            <label className="text-xs text-gray-400 block mb-1">
+                              Corner Radius: {(badgeStyle.status_corner_radius ?? 0.3).toFixed(1)}
+                            </label>
+                            <input
+                              type="range" min="0" max="1.0" step="0.05"
+                              value={badgeStyle.status_corner_radius ?? 0.3}
+                              onChange={(e) => updateBadgeStyle('status_corner_radius', parseFloat(e.target.value))}
+                              className="w-full accent-blue-500"
+                            />
+                          </div>
+
+                          {/* Custom Status Labels */}
+                          <details className="group">
+                            <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-300 select-none">
+                              Custom Status Labels ▸
+                            </summary>
+                            <div className="mt-2 space-y-2 pl-1">
+                              {Object.entries(badgeStyle.custom_statuses || {}).map(([key, cs]) => (
+                                <div key={key} className="flex items-center gap-2">
+                                  <input type="color" value={cs.color || '#9ca3af'}
+                                    onChange={(e) => {
+                                      const updated = { ...(badgeStyle.custom_statuses || {}), [key]: { ...cs, color: e.target.value } }
+                                      updateBadgeStyle('custom_statuses', updated)
+                                    }}
+                                    className="w-6 h-6 rounded border border-gray-700 bg-gray-800 cursor-pointer"
+                                  />
+                                  <span className="text-xs text-gray-300 flex-1">{cs.label}</span>
+                                  <button
+                                    onClick={() => {
+                                      const updated = { ...(badgeStyle.custom_statuses || {}) }
+                                      delete updated[key]
+                                      updateBadgeStyle('custom_statuses', updated)
+                                    }}
+                                    className="text-red-400 hover:text-red-300 text-xs"
+                                  >✕</button>
+                                </div>
+                              ))}
+                              <div className="flex gap-2">
+                                <input type="text" placeholder="Label (e.g. HIATUS)"
+                                  id="custom-status-input"
+                                  className="flex-1 px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-white"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && e.target.value.trim()) {
+                                      const label = e.target.value.trim()
+                                      const key = label.toLowerCase().replace(/\s+/g, '_')
+                                      const updated = { ...(badgeStyle.custom_statuses || {}), [key]: { label: label.toUpperCase(), color: '#9ca3af' } }
+                                      updateBadgeStyle('custom_statuses', updated)
+                                      e.target.value = ''
+                                    }
+                                  }}
+                                />
+                                <button
+                                  onClick={() => {
+                                    const input = document.getElementById('custom-status-input')
+                                    if (input?.value.trim()) {
+                                      const label = input.value.trim()
+                                      const key = label.toLowerCase().replace(/\s+/g, '_')
+                                      const updated = { ...(badgeStyle.custom_statuses || {}), [key]: { label: label.toUpperCase(), color: '#9ca3af' } }
+                                      updateBadgeStyle('custom_statuses', updated)
+                                      input.value = ''
+                                    }
+                                  }}
+                                  className="px-2 py-1 bg-blue-700 hover:bg-blue-600 rounded text-xs text-white"
+                                >Add</button>
+                              </div>
+                            </div>
+                          </details>
                         </>
                       )}
                     </>
@@ -1118,7 +1346,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
           </div>
 
           {/* Action Buttons */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-5 gap-3">
             <button
               onClick={restoreOriginals}
               disabled={!selectedLibrary}
@@ -1139,6 +1367,54 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
               className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded-lg transition"
             >
               {selectedLibraries.length > 1 ? `▶️ Process (${selectedLibraries.length})` : '▶️ Process'}
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetch('/api/settings/export')
+                  const data = await res.json()
+                  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = 'kometizarr-settings.json'
+                  a.click()
+                  URL.revokeObjectURL(url)
+                } catch (err) { console.error('Export failed', err) }
+              }}
+              className="bg-gray-600 hover:bg-gray-500 text-white font-semibold py-3 px-4 rounded-lg transition"
+            >
+              📥 Export
+            </button>
+            <button
+              onClick={() => {
+                const input = document.createElement('input')
+                input.type = 'file'
+                input.accept = '.json'
+                input.onchange = async (e) => {
+                  const file = e.target.files[0]
+                  if (!file) return
+                  try {
+                    const text = await file.text()
+                    const data = JSON.parse(text)
+                    const res = await fetch('/api/settings/import', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(data)
+                    })
+                    if (res.ok) {
+                      alert('Settings imported! Reloading…')
+                      window.location.reload()
+                    } else {
+                      alert('Import failed: ' + (await res.text()))
+                    }
+                  } catch (err) { alert('Invalid JSON file') }
+                }
+                input.click()
+              }}
+              className="bg-gray-600 hover:bg-gray-500 text-white font-semibold py-3 px-4 rounded-lg transition"
+            >
+              📤 Import
             </button>
           </div>
         </div>

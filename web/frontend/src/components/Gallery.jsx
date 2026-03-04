@@ -7,6 +7,17 @@ const STATUS_COLORS = {
   unknown: { bg: 'bg-gray-700/50', text: 'text-gray-300', label: 'Unknown' },
 }
 
+const STATUS_OVERRIDE_OPTIONS = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'current', label: 'Current' },
+  { value: 'renewed', label: 'Renewed' },
+  { value: 'ended', label: 'Ended' },
+  { value: 'cancelled', label: 'Cancelled' },
+]
+
+// Match backend sanitization: keep only alphanumeric, spaces, hyphens, underscores
+const safeTitle = (t) => t.replace(/[^a-zA-Z0-9 \-_]/g, '').trim()
+
 export default function Gallery() {
   const [libraries, setLibraries] = useState([])
   const [selectedLib, setSelectedLib] = useState('')
@@ -16,6 +27,7 @@ export default function Gallery() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [posterVersion, setPosterVersion] = useState('overlay') // 'overlay' or 'original'
+  const [statusOverrides, setStatusOverrides] = useState({}) // { title: status }
 
   useEffect(() => {
     fetch('/api/libraries').then(r => r.json()).then(d => setLibraries(d.libraries || []))
@@ -40,7 +52,33 @@ export default function Gallery() {
 
   useEffect(() => {
     if (selectedLib) fetchGallery(selectedLib, 1)
+    // Fetch status overrides for TV libraries
+    const lib = libraries.find(l => l.name === selectedLib)
+    if (lib && lib.type === 'show') {
+      fetch(`/api/status-overrides/${encodeURIComponent(selectedLib)}`)
+        .then(r => r.json())
+        .then(d => setStatusOverrides(d.overrides || {}))
+        .catch(() => setStatusOverrides({}))
+    } else {
+      setStatusOverrides({})
+    }
   }, [selectedLib])
+
+  const setStatusOverride = async (title, status) => {
+    await fetch(`/api/status-overrides/${encodeURIComponent(selectedLib)}/${encodeURIComponent(title)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    })
+    const key = safeTitle(title)
+    if (status === 'auto') {
+      const updated = { ...statusOverrides }
+      delete updated[key]
+      setStatusOverrides(updated)
+    } else {
+      setStatusOverrides(prev => ({ ...prev, [key]: status }))
+    }
+  }
 
   const toggleExclude = async (item) => {
     const method = item.status === 'excluded' ? 'DELETE' : 'POST'
@@ -101,6 +139,8 @@ export default function Gallery() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {items.map(item => {
               const s = STATUS_COLORS[item.status] || STATUS_COLORS.unknown
+              const currentLib = libraries.find(l => l.name === selectedLib)
+              const isTv = currentLib?.type === 'show'
               return (
                 <div key={item.title} className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden group">
                   {/* Poster thumbnail */}
@@ -117,23 +157,37 @@ export default function Gallery() {
                       {s.label}
                     </span>
                     {/* Hover actions */}
-                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition flex items-end p-2 gap-1.5">
-                      <button
-                        onClick={() => toggleExclude(item)}
-                        className={`flex-1 px-2 py-1 rounded text-[10px] font-medium transition ${
-                          item.status === 'excluded'
-                            ? 'bg-green-700 hover:bg-green-600 text-green-100'
-                            : 'bg-red-700 hover:bg-red-600 text-red-100'
-                        }`}
-                      >
-                        {item.status === 'excluded' ? 'Include' : 'Exclude'}
-                      </button>
-                      <button
-                        onClick={() => retryItem(item)}
-                        className="flex-1 px-2 py-1 bg-blue-700 hover:bg-blue-600 rounded text-[10px] font-medium text-blue-100 transition"
-                      >
-                        Retry
-                      </button>
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition flex flex-col justify-end p-2 gap-1.5">
+                      {isTv && (
+                        <select
+                          value={statusOverrides[safeTitle(item.title)] || 'auto'}
+                          onChange={(e) => setStatusOverride(item.title, e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-full px-2 py-1 bg-gray-800 border border-gray-600 rounded text-[10px] text-white"
+                        >
+                          {STATUS_OVERRIDE_OPTIONS.map(o => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                      )}
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => toggleExclude(item)}
+                          className={`flex-1 px-2 py-1 rounded text-[10px] font-medium transition ${
+                            item.status === 'excluded'
+                              ? 'bg-green-700 hover:bg-green-600 text-green-100'
+                              : 'bg-red-700 hover:bg-red-600 text-red-100'
+                          }`}
+                        >
+                          {item.status === 'excluded' ? 'Include' : 'Exclude'}
+                        </button>
+                        <button
+                          onClick={() => retryItem(item)}
+                          className="flex-1 px-2 py-1 bg-blue-700 hover:bg-blue-600 rounded text-[10px] font-medium text-blue-100 transition"
+                        >
+                          Retry
+                        </button>
+                      </div>
                     </div>
                   </div>
                   {/* Title + ratings */}

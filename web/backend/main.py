@@ -716,6 +716,49 @@ async def get_health():
     return result
 
 
+# ── Sample Poster for Preview ─────────────────────────────────────────────────
+
+@app.get("/api/sample-poster/{library_name}")
+async def get_sample_poster(library_name: str):
+    """Return a base64-encoded poster thumbnail from a random library item for SVG preview background."""
+    import random
+    import base64
+    import requests as req
+
+    try:
+        from plexapi.server import PlexServer
+        plex_url = os.getenv('PLEX_URL')
+        plex_token = os.getenv('PLEX_TOKEN')
+        server = PlexServer(plex_url, plex_token)
+        library = server.library.section(library_name)
+
+        # Try backup poster first (faster, no network)
+        backup_root = Path('/backups') / library_name
+        if backup_root.exists():
+            poster_dirs = [d for d in backup_root.iterdir() if d.is_dir() and (d / 'poster_original.jpg').exists()]
+            if poster_dirs:
+                chosen = random.choice(poster_dirs)
+                poster_path = chosen / 'poster_original.jpg'
+                with open(poster_path, 'rb') as f:
+                    return {'image': base64.b64encode(f.read()).decode(), 'title': chosen.name}
+
+        # Fall back to Plex API
+        items = library.all()
+        if not items:
+            return {'error': 'Library empty'}
+        sample = random.sample(items, min(5, len(items)))
+        for item in sample:
+            poster_url = item.posterUrl
+            if not poster_url:
+                continue
+            response = req.get(poster_url, headers={'X-Plex-Token': plex_token}, timeout=10)
+            if response.status_code == 200:
+                return {'image': base64.b64encode(response.content).decode(), 'title': item.title}
+        return {'error': 'No poster available'}
+    except Exception as e:
+        return {'error': str(e)}
+
+
 # ── Item Gallery ──────────────────────────────────────────────────────────────
 
 @app.get("/api/gallery/{library_name}")
@@ -829,6 +872,49 @@ async def retry_item(library_name: str, item_title: str):
         return {"status": "started", "title": item.title}
     except Exception as e:
         return {"error": str(e)}
+
+
+# ── Per-Show Status Overrides ────────────────────────────────────────────────
+
+@app.get("/api/status-overrides/{library_name}")
+async def get_status_overrides(library_name: str):
+    """Get all per-show status overrides for a library"""
+    settings = _load_settings()
+    overrides = settings.get('status_overrides', {}).get(library_name, {})
+    return {'overrides': overrides}
+
+
+@app.put("/api/status-overrides/{library_name}/{item_title}")
+async def set_status_override(library_name: str, item_title: str, body: Dict[str, Any]):
+    """Set a per-show status override"""
+    status = body.get('status', 'auto')
+    settings = _load_settings()
+    overrides = settings.setdefault('status_overrides', {}).setdefault(library_name, {})
+    safe_title = "".join(c for c in item_title if c.isalnum() or c in (' ', '-', '_')).strip()
+    if status == 'auto' or status == '':
+        overrides.pop(safe_title, None)
+    else:
+        overrides[safe_title] = status
+    _save_settings(settings)
+    return {'status': status, 'title': safe_title}
+
+
+# ── Settings Export/Import ───────────────────────────────────────────────────
+
+@app.get("/api/settings/export")
+async def export_settings():
+    """Export all settings as downloadable JSON"""
+    settings = _load_settings()
+    return settings
+
+
+@app.post("/api/settings/import")
+async def import_settings(body: Dict[str, Any]):
+    """Import settings from JSON, merging with existing"""
+    settings = _load_settings()
+    settings.update(body)
+    _save_settings(settings)
+    return {'status': 'imported', 'keys': list(body.keys())}
 
 
 class PreviewRequest(BaseModel):
