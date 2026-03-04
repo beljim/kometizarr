@@ -428,18 +428,6 @@ class PlexPosterManager:
             # Remove zero-value ratings (no votes yet = nothing meaningful to display)
             ratings = {k: v for k, v in ratings.items() if v and v > 0}
 
-            # Smart Refresh: in force mode, skip if ratings haven't changed since last run
-            if force and ratings:
-                existing_meta = self.backup_manager.get_metadata(self.library_name, movie.title)
-                if existing_meta and existing_meta.get('ratings'):
-                    old_ratings = existing_meta['ratings']
-                    # Compare rounded values to avoid floating point noise
-                    old_rounded = {k: round(float(v), 1) for k, v in old_ratings.items() if v}
-                    new_rounded = {k: round(float(v), 1) for k, v in ratings.items()}
-                    if old_rounded == new_rounded and self.backup_manager.has_overlay(self.library_name, movie.title, rating_key=movie.ratingKey):
-                        logger.debug(f"⏭️  {movie.title}: Ratings unchanged ({new_rounded}), skipping smart refresh")
-                        return None
-
             # Check if we have ANY ratings to display
             if not ratings:
                 selected_status = str((self.badge_style or {}).get('status_overlay', 'none')).strip().lower()
