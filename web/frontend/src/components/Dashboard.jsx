@@ -29,10 +29,51 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
     rt_audience: { x: 70, y: 78 }    // Bottom-right
   }
   const DEFAULT_RATING_SOURCES = { tmdb: true, imdb: true, rt_critic: true, rt_audience: true }
-  const [badgePositions, setBadgePositions] = useState(() => {
-    const saved = localStorage.getItem('kometizarr_badge_positions')
-    return saved ? JSON.parse(saved) : DEFAULT_BADGE_POSITIONS
+  const [mediaTypeTab, setMediaTypeTab] = useState('movie') // 'movie' or 'tv'
+  // Per-type settings stored as { movie: {...}, tv: {...} }
+  const [perTypePositions, setPerTypePositions] = useState(() => {
+    const saved = localStorage.getItem('kometizarr_per_type_positions')
+    if (saved) try { return JSON.parse(saved) } catch {}
+    const flat = localStorage.getItem('kometizarr_badge_positions')
+    const base = flat ? JSON.parse(flat) : DEFAULT_BADGE_POSITIONS
+    return { movie: { ...base }, tv: { ...base } }
   })
+  const [perTypeStyle, setPerTypeStyle] = useState(() => {
+    const saved = localStorage.getItem('kometizarr_per_type_style')
+    if (saved) try { return JSON.parse(saved) } catch {}
+    const flat = localStorage.getItem('kometizarr_badge_style')
+    const base = flat ? { ...DEFAULT_BADGE_STYLE, ...JSON.parse(flat) } : DEFAULT_BADGE_STYLE
+    return { movie: { ...base }, tv: { ...base } }
+  })
+  const [perTypeSources, setPerTypeSources] = useState(() => {
+    const saved = localStorage.getItem('kometizarr_per_type_sources')
+    if (saved) try { return JSON.parse(saved) } catch {}
+    const flat = localStorage.getItem('kometizarr_rating_sources')
+    const base = flat ? JSON.parse(flat) : DEFAULT_RATING_SOURCES
+    return { movie: { ...base }, tv: { ...base } }
+  })
+
+  // Derive active settings from current media type tab
+  const badgePositions = perTypePositions[mediaTypeTab] || DEFAULT_BADGE_POSITIONS
+  const badgeStyle = perTypeStyle[mediaTypeTab] || DEFAULT_BADGE_STYLE
+  const ratingSources = perTypeSources[mediaTypeTab] || DEFAULT_RATING_SOURCES
+
+  // Setters that update per-type storage
+  const setBadgePositions = (pos) => {
+    const updated = { ...perTypePositions, [mediaTypeTab]: typeof pos === 'function' ? pos(badgePositions) : pos }
+    setPerTypePositions(updated)
+    localStorage.setItem('kometizarr_per_type_positions', JSON.stringify(updated))
+  }
+  const setBadgeStyle = (style) => {
+    const updated = { ...perTypeStyle, [mediaTypeTab]: typeof style === 'function' ? style(badgeStyle) : style }
+    setPerTypeStyle(updated)
+    localStorage.setItem('kometizarr_per_type_style', JSON.stringify(updated))
+  }
+  const setRatingSources = (src) => {
+    const updated = { ...perTypeSources, [mediaTypeTab]: typeof src === 'function' ? src(ratingSources) : src }
+    setPerTypeSources(updated)
+    localStorage.setItem('kometizarr_per_type_sources', JSON.stringify(updated))
+  }
   const [activeDragBadge, setActiveDragBadge] = useState(null)  // Which badge is being dragged
   const [alignmentGuides, setAlignmentGuides] = useState([])  // Visual alignment guides
   const [force, setForce] = useState(false)
@@ -43,21 +84,15 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewResults, setPreviewResults] = useState(null)  // null = closed, [] = loading/empty
   const [previewDebug, setPreviewDebug] = useState(null)
-  const [ratingSources, setRatingSources] = useState(() => {
-    const saved = localStorage.getItem('kometizarr_rating_sources')
-    return saved ? JSON.parse(saved) : DEFAULT_RATING_SOURCES
-  })
-  const [badgeStyle, setBadgeStyle] = useState(() => {
-    // Load from localStorage or use defaults
-    const saved = localStorage.getItem('kometizarr_badge_style')
-    if (!saved) return DEFAULT_BADGE_STYLE
 
-    try {
-      return { ...DEFAULT_BADGE_STYLE, ...JSON.parse(saved) }
-    } catch {
-      return DEFAULT_BADGE_STYLE
-    }
-  })
+  // Helper: get settings for a specific library type
+  const getSettingsForType = (libType) => {
+    const type = libType === 'show' ? 'tv' : 'movie'
+    const pos = perTypePositions[type] || DEFAULT_BADGE_POSITIONS
+    const style = perTypeStyle[type] || DEFAULT_BADGE_STYLE
+    const src = perTypeSources[type] || DEFAULT_RATING_SOURCES
+    return { positions: pos, style, sources: src }
+  }
 
   // Keep a ref so handleMouseUp can read latest badgePositions without stale closure
   const badgePositionsRef = useRef(badgePositions)
@@ -78,29 +113,59 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
     }
   }
 
+  // Persist all per-type settings to server
+  const persistAllPerType = () => {
+    persistBadgeSettings({
+      per_type_positions: perTypePositions,
+      per_type_style: perTypeStyle,
+      per_type_sources: perTypeSources,
+      // Keep flat keys for backward compat with cron/webhook
+      badge_positions: perTypePositions.movie,
+      badge_style: perTypeStyle.movie,
+      rating_sources: perTypeSources.movie,
+    })
+  }
+
   useEffect(() => {
     fetchLibraries()
     // Load badge settings from server (source of truth for cross-device sync)
-    // Fall back to localStorage / defaults if server has no values yet
     fetch('/api/settings')
       .then(r => r.json())
       .then(s => {
-        if (s.badge_positions) {
-          setBadgePositions(s.badge_positions)
-          localStorage.setItem('kometizarr_badge_positions', JSON.stringify(s.badge_positions))
+        // Load per-type settings from server if available
+        if (s.per_type_positions) {
+          setPerTypePositions(s.per_type_positions)
+          localStorage.setItem('kometizarr_per_type_positions', JSON.stringify(s.per_type_positions))
+        } else if (s.badge_positions) {
+          // Migrate flat settings into per-type
+          const migrated = { movie: s.badge_positions, tv: { ...s.badge_positions } }
+          setPerTypePositions(migrated)
+          localStorage.setItem('kometizarr_per_type_positions', JSON.stringify(migrated))
         }
-        if (s.badge_style) {
-          const merged = { ...DEFAULT_BADGE_STYLE, ...s.badge_style }
-          setBadgeStyle(merged)
-          localStorage.setItem('kometizarr_badge_style', JSON.stringify(merged))
+        if (s.per_type_style) {
+          const merged = {
+            movie: { ...DEFAULT_BADGE_STYLE, ...s.per_type_style.movie },
+            tv: { ...DEFAULT_BADGE_STYLE, ...s.per_type_style.tv },
+          }
+          setPerTypeStyle(merged)
+          localStorage.setItem('kometizarr_per_type_style', JSON.stringify(merged))
+        } else if (s.badge_style) {
+          const base = { ...DEFAULT_BADGE_STYLE, ...s.badge_style }
+          const migrated = { movie: { ...base }, tv: { ...base } }
+          setPerTypeStyle(migrated)
+          localStorage.setItem('kometizarr_per_type_style', JSON.stringify(migrated))
         }
-        if (s.rating_sources) {
-          setRatingSources(s.rating_sources)
-          localStorage.setItem('kometizarr_rating_sources', JSON.stringify(s.rating_sources))
+        if (s.per_type_sources) {
+          setPerTypeSources(s.per_type_sources)
+          localStorage.setItem('kometizarr_per_type_sources', JSON.stringify(s.per_type_sources))
+        } else if (s.rating_sources) {
+          const migrated = { movie: s.rating_sources, tv: { ...s.rating_sources } }
+          setPerTypeSources(migrated)
+          localStorage.setItem('kometizarr_per_type_sources', JSON.stringify(migrated))
         }
-        // If server has no badge settings yet, push current (localStorage/defaults) up
-        if (!s.badge_positions || !s.badge_style || !s.rating_sources) {
-          persistBadgeSettings({ badge_positions: badgePositions, badge_style: badgeStyle, rating_sources: ratingSources })
+        // If server has no per-type settings, push current up
+        if (!s.per_type_positions || !s.per_type_style || !s.per_type_sources) {
+          persistAllPerType()
         }
       })
       .catch(() => {})
@@ -179,15 +244,13 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
   const toggleRatingSource = (source) => {
     const updated = { ...ratingSources, [source]: !ratingSources[source] }
     setRatingSources(updated)
-    localStorage.setItem('kometizarr_rating_sources', JSON.stringify(updated))
-    persistBadgeSettings({ rating_sources: updated })
+    persistAllPerType()
   }
 
   const updateBadgeStyle = (key, value) => {
     const updated = { ...badgeStyle, [key]: value }
     setBadgeStyle(updated)
-    localStorage.setItem('kometizarr_badge_style', JSON.stringify(updated))
-    persistBadgeSettings({ badge_style: updated })
+    persistAllPerType()
   }
 
   const handlePosterDrag = (e, badgeSource) => {
@@ -208,7 +271,6 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
       const newPos = { x: Math.round(xPercent), y: Math.round(yPercent) }
       const updated = { ...badgeStyle, status_position: newPos }
       setBadgeStyle(updated)
-      localStorage.setItem('kometizarr_badge_style', JSON.stringify(updated))
       return
     }
 
@@ -299,7 +361,6 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
     // Update only this badge's position
     const updated = { ...badgePositions, [source]: newPosition }
     setBadgePositions(updated)
-    localStorage.setItem('kometizarr_badge_positions', JSON.stringify(updated))
   }
 
   const handleBadgeMouseDown = (e, badgeSource) => {
@@ -317,12 +378,9 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
   const handleMouseUp = () => {
     if (activeDragBadge) {
       if (activeDragBadge === 'status') {
-        // Persist status position from latest badgeStyle
-        const latestStyle = JSON.parse(localStorage.getItem('kometizarr_badge_style') || '{}')
-        persistBadgeSettings({ badge_style: latestStyle })
+        persistAllPerType()
       } else {
-        // Save final drag position to server (use ref to get latest state)
-        persistBadgeSettings({ badge_positions: badgePositionsRef.current })
+        persistAllPerType()
       }
     }
     setActiveDragBadge(null)
@@ -332,10 +390,22 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
   const startProcessing = async () => {
     if (selectedLibraries.length === 0) return
 
+    // Build per-type settings to send to backend
+    const perType = {
+      movie: getSettingsForType('movie'),
+      tv: getSettingsForType('show'),
+    }
+
+    // For single library, use its specific type settings
+    // For batch, send per_type so backend can resolve per library
+    const firstLib = libraries.find(l => l.name === selectedLibraries[0])
+    const libType = firstLib?.type === 'show' ? 'tv' : 'movie'
+    const typeSettings = perType[libType]
+
     const enabledBadgePositions = {}
-    Object.keys(ratingSources).forEach(source => {
-      if (ratingSources[source] && badgePositions[source]) {
-        enabledBadgePositions[source] = badgePositions[source]
+    Object.keys(typeSettings.sources).forEach(source => {
+      if (typeSettings.sources[source] && typeSettings.positions[source]) {
+        enabledBadgePositions[source] = typeSettings.positions[source]
       }
     })
 
@@ -343,9 +413,12 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
       position,
       badge_positions: enabledBadgePositions,
       force,
-      rating_sources: ratingSources,
-      badge_style: badgeStyle,
+      rating_sources: typeSettings.sources,
+      badge_style: typeSettings.style,
       workers,
+      per_type_positions: perTypePositions,
+      per_type_style: perTypeStyle,
+      per_type_sources: perTypeSources,
     }
 
     try {
@@ -404,9 +477,11 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
     setPreviewDebug(null)
 
     const enabledBadgePositions = {}
-    Object.keys(ratingSources).forEach(source => {
-      if (ratingSources[source] && badgePositions[source]) {
-        enabledBadgePositions[source] = badgePositions[source]
+    const previewType = selectedLibrary.type === 'show' ? 'tv' : 'movie'
+    const previewSettings = getSettingsForType(selectedLibrary.type)
+    Object.keys(previewSettings.sources).forEach(source => {
+      if (previewSettings.sources[source] && previewSettings.positions[source]) {
+        enabledBadgePositions[source] = previewSettings.positions[source]
       }
     })
 
@@ -417,8 +492,8 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
         body: JSON.stringify({
           library_name: selectedLibrary.name,
           badge_positions: enabledBadgePositions,
-          rating_sources: ratingSources,
-          badge_style: badgeStyle,
+          rating_sources: previewSettings.sources,
+          badge_style: previewSettings.style,
           count: 3,
         }),
       })
@@ -536,7 +611,23 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
         <div className="space-y-4">
           {/* Position & Styling - Side by Side Layout */}
           <div>
-            <label className="block text-sm font-medium mb-2">Badge Positions & Styling</label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium">Badge Positions & Styling</label>
+              <div className="flex bg-gray-900 border border-gray-700 rounded-lg overflow-hidden">
+                <button
+                  onClick={() => setMediaTypeTab('movie')}
+                  className={`px-4 py-1.5 text-xs font-medium transition ${mediaTypeTab === 'movie' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                >
+                  🎬 Movies
+                </button>
+                <button
+                  onClick={() => setMediaTypeTab('tv')}
+                  className={`px-4 py-1.5 text-xs font-medium transition ${mediaTypeTab === 'tv' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                >
+                  📺 TV Shows
+                </button>
+              </div>
+            </div>
             <div className="bg-gray-900 rounded-lg p-4">
               <div className="flex items-start gap-6">
                 {/* LEFT: Draggable Poster Preview */}
@@ -968,14 +1059,12 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                   {/* Reset Button */}
                   <button
                     onClick={() => {
-                      const defaults = DEFAULT_BADGE_STYLE
-                      setBadgeStyle(defaults)
-                      localStorage.setItem('kometizarr_badge_style', JSON.stringify(defaults))
-                      persistBadgeSettings({ badge_style: defaults })
+                      setBadgeStyle(DEFAULT_BADGE_STYLE)
+                      persistAllPerType()
                     }}
                     className="w-full text-xs px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded border border-gray-700 transition"
                   >
-                    ↺ Reset Styling
+                    ↺ Reset {mediaTypeTab === 'tv' ? 'TV' : 'Movie'} Styling
                   </button>
                 </div>
               </div>
@@ -1081,6 +1170,36 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                 ⚠️ At least one rating source must be selected
               </div>
             )}
+          </div>
+
+          {/* Status Overlay Quick Toggle */}
+          <div>
+            <label className="block text-sm font-medium mb-2">Status Overlay</label>
+            <div className="flex items-center gap-3">
+              {['none', 'auto', 'current', 'renewed', 'ended', 'cancelled'].map(opt => {
+                const active = (badgeStyle.status_overlay || 'none') === opt
+                const colors = {
+                  none: 'border-gray-600 text-gray-400',
+                  auto: active ? 'border-gray-400 bg-gray-700 text-white' : 'border-gray-600 text-gray-400',
+                  current: active ? 'border-blue-500 bg-blue-900/40 text-blue-300' : 'border-gray-600 text-gray-400',
+                  renewed: active ? 'border-green-500 bg-green-900/40 text-green-300' : 'border-gray-600 text-gray-400',
+                  ended: active ? 'border-orange-500 bg-orange-900/40 text-orange-300' : 'border-gray-600 text-gray-400',
+                  cancelled: active ? 'border-red-500 bg-red-900/40 text-red-300' : 'border-gray-600 text-gray-400',
+                }
+                return (
+                  <button
+                    key={opt}
+                    onClick={() => updateBadgeStyle('status_overlay', opt)}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition hover:border-gray-500 ${active ? colors[opt] : colors[opt]}`}
+                  >
+                    {opt === 'none' ? 'Off' : opt.charAt(0).toUpperCase() + opt.slice(1)}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-xs text-gray-500 mt-1.5">
+              {mediaTypeTab === 'movie' ? 'Status overlays only apply to TV show libraries.' : 'Auto mode reads status from Plex/TMDB per show.'}
+            </p>
           </div>
 
           {/* Action Buttons */}

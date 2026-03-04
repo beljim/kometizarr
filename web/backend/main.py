@@ -142,6 +142,10 @@ class ProcessBatchRequest(BaseModel):
     rating_sources: Optional[Dict[str, bool]] = None
     badge_style: Optional[Dict[str, Any]] = None
     workers: int = 1
+    # Per media-type settings (movie / tv)
+    per_type_positions: Optional[Dict[str, Any]] = None
+    per_type_style: Optional[Dict[str, Any]] = None
+    per_type_sources: Optional[Dict[str, Any]] = None
 
 
 class LibraryStats(BaseModel):
@@ -233,6 +237,19 @@ async def start_processing(request: ProcessRequest):
     return {"status": "started", "library": request.library_name}
 
 
+def _get_library_type(library_name: str) -> str:
+    """Get the Plex library type ('movie' or 'show') for a library name."""
+    try:
+        from plexapi.server import PlexServer
+        plex_url = os.getenv('PLEX_URL')
+        plex_token = os.getenv('PLEX_TOKEN')
+        server = PlexServer(plex_url, plex_token)
+        library = server.library.section(library_name)
+        return library.type
+    except Exception:
+        return 'movie'
+
+
 @app.post("/api/process-batch")
 async def start_processing_batch(request: ProcessBatchRequest):
     """Process multiple libraries sequentially."""
@@ -243,13 +260,35 @@ async def start_processing_batch(request: ProcessBatchRequest):
 
     async def run_batch():
         for lib_name in request.library_names:
+            # Resolve per-type settings if available
+            lib_type = _get_library_type(lib_name)
+            type_key = 'tv' if lib_type == 'show' else 'movie'
+
+            bp = request.badge_positions
+            bs = request.badge_style
+            rs = request.rating_sources
+
+            if request.per_type_positions and type_key in request.per_type_positions:
+                bp = request.per_type_positions[type_key]
+            if request.per_type_style and type_key in request.per_type_style:
+                bs = request.per_type_style[type_key]
+            if request.per_type_sources and type_key in request.per_type_sources:
+                rs = request.per_type_sources[type_key]
+
+            # Filter badge_positions to only enabled sources
+            enabled_bp = None
+            if bp and rs:
+                enabled_bp = {k: v for k, v in bp.items() if rs.get(k, True)}
+            else:
+                enabled_bp = bp
+
             single = ProcessRequest(
                 library_name=lib_name,
                 position=request.position,
-                badge_positions=request.badge_positions,
+                badge_positions=enabled_bp,
                 force=request.force,
-                rating_sources=request.rating_sources,
-                badge_style=request.badge_style,
+                rating_sources=rs,
+                badge_style=bs,
                 workers=request.workers,
             )
             await process_library_background(single)
@@ -1265,6 +1304,9 @@ SETTINGS_SCHEMA_DEFAULTS = {
     "badge_style": None,
     "rating_sources": None,
     "selected_libraries": [],
+    "per_type_positions": None,
+    "per_type_style": None,
+    "per_type_sources": None,
 }
 
 # Valid top-level keys (stale keys not in this set are pruned)
@@ -1384,18 +1426,33 @@ async def _run_libraries_sequentially(libraries: list, force: bool):
             logger.error(f"Cron: failed to fetch library list: {e}")
             return
     settings = _load_settings()
-    badge_style = settings.get("badge_style")
-    badge_positions = settings.get("badge_positions")
-    rating_sources = settings.get("rating_sources")
+    per_type_positions = settings.get("per_type_positions")
+    per_type_style = settings.get("per_type_style")
+    per_type_sources = settings.get("per_type_sources")
+    # Fallback flat settings
+    flat_badge_style = settings.get("badge_style")
+    flat_badge_positions = settings.get("badge_positions")
+    flat_rating_sources = settings.get("rating_sources")
     label = "force" if force else "normal"
     for lib_name in libraries:
-        logger.info(f"Cron ({label}): processing {lib_name}")
+        lib_type = _get_library_type(lib_name)
+        type_key = 'tv' if lib_type == 'show' else 'movie'
+
+        bs = (per_type_style or {}).get(type_key, flat_badge_style)
+        bp = (per_type_positions or {}).get(type_key, flat_badge_positions)
+        rs = (per_type_sources or {}).get(type_key, flat_rating_sources)
+
+        # Filter badge_positions to only enabled sources
+        if bp and rs:
+            bp = {k: v for k, v in bp.items() if rs.get(k, True)}
+
+        logger.info(f"Cron ({label}): processing {lib_name} (type={type_key})")
         await process_library_background(ProcessRequest(
             library_name=lib_name,
             force=force,
-            badge_style=badge_style,
-            badge_positions=badge_positions,
-            rating_sources=rating_sources,
+            badge_style=bs,
+            badge_positions=bp,
+            rating_sources=rs,
         ))
 
 
@@ -1422,11 +1479,22 @@ async def _webhook_queue_worker():
             logger.info(f"Webhook queue: waiting {webhook_delay}s for Plex to populate metadata for {item_title}")
             await asyncio.sleep(webhook_delay)
 
-            # Load current badge settings so webhook uses same styling as the UI
-            badge_style = settings.get("badge_style")
-            badge_positions = settings.get("badge_positions")
-            rating_sources = settings.get("rating_sources")
-            logger.info(f"Webhook queue: processing {library_name} / {item_title} (key={rating_key})")
+            # Load current badge settings — resolve per-type
+            per_type_positions = settings.get("per_type_positions")
+            per_type_style = settings.get("per_type_style")
+            per_type_sources = settings.get("per_type_sources")
+
+            lib_type = _get_library_type(library_name)
+            type_key = 'tv' if lib_type == 'show' else 'movie'
+
+            badge_style = (per_type_style or {}).get(type_key, settings.get("badge_style"))
+            badge_positions = (per_type_positions or {}).get(type_key, settings.get("badge_positions"))
+            rating_sources = (per_type_sources or {}).get(type_key, settings.get("rating_sources"))
+
+            if badge_positions and rating_sources:
+                badge_positions = {k: v for k, v in badge_positions.items() if rating_sources.get(k, True)}
+
+            logger.info(f"Webhook queue: processing {library_name} / {item_title} (key={rating_key}, type={type_key})")
             await process_library_background(ProcessRequest(
                 library_name=library_name,
                 rating_key=rating_key,
