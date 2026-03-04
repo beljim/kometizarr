@@ -12,7 +12,8 @@ const DEFAULT_BADGE_STYLE = {
   status_position: { x: 50, y: 50 }, // {x, y} percentage — draggable like badges
   status_rotation: 0, // 0 = horizontal, 90 = vertical (top-to-bottom), -90 = vertical (bottom-to-top)
   status_text_size: 12, // % of poster min dimension (default 12%)
-  status_padding: 1.0, // background padding multiplier (0.2 – 3.0)
+  status_padding_h: 1.0, // horizontal padding multiplier (0.2 – 10.0, high = full poster width)
+  status_padding_v: 1.0, // vertical padding multiplier (0.2 – 3.0)
 }
 
 function Dashboard({ onStartProcessing, onLibrarySelect }) {
@@ -77,7 +78,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
     localStorage.setItem('kometizarr_per_type_sources', JSON.stringify(updated))
   }
   const [activeDragBadge, setActiveDragBadge] = useState(null)  // Which badge is being dragged
-  const [alignmentGuides, setAlignmentGuides] = useState([])  // Visual alignment guides
+  const GRID_SNAP = 5  // Snap to 5% grid
   const [force, setForce] = useState(false)
   const [workers, setWorkers] = useState(() => {
     const saved = localStorage.getItem('kometizarr_workers')
@@ -268,9 +269,12 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
       const clickY = e.clientY - rect.top
       let xPercent = (clickX / rect.width) * 100
       let yPercent = (clickY / rect.height) * 100
-      xPercent = Math.max(2, Math.min(xPercent, 98))
-      yPercent = Math.max(2, Math.min(yPercent, 98))
-      const newPos = { x: Math.round(xPercent), y: Math.round(yPercent) }
+      // Snap status to grid
+      xPercent = Math.round(xPercent / GRID_SNAP) * GRID_SNAP
+      yPercent = Math.round(yPercent / GRID_SNAP) * GRID_SNAP
+      xPercent = Math.max(0, Math.min(xPercent, 100))
+      yPercent = Math.max(0, Math.min(yPercent, 100))
+      const newPos = { x: xPercent, y: yPercent }
       const updated = { ...badgeStyle, status_position: newPos }
       setBadgeStyle(updated)
       return
@@ -282,85 +286,22 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
     const clickX = e.clientX - rect.left
     const clickY = e.clientY - rect.top
 
-    // Calculate position as percentage of poster dimensions (0-100)
-    // Individual badges are small (~12% of poster width)
     const badgeWidthPercent = badgeStyle.individual_badge_size || 12
-    // Badge height as % of poster height: badge is badgeWidthPercent% of width, height = width * 1.4
-    // For SVG viewBox 120x180: heightPct = widthPct * 1.4 * (120/180)
     const badgeHeightPercent = badgeWidthPercent * 1.4 * (120 / 180)
 
-    // Center badge on cursor
+    // Center badge on cursor, then snap to grid
     let xPercent = (clickX / rect.width) * 100 - (badgeWidthPercent / 2)
     let yPercent = (clickY / rect.height) * 100 - (badgeHeightPercent / 2)
 
-    // Detect alignment with other badges (before clamping)
-    const guides = []
-    const threshold = 2  // Snap within 2%
-    let alignedX = false
-    let alignedY = false
+    // Snap to grid
+    xPercent = Math.round(xPercent / GRID_SNAP) * GRID_SNAP
+    yPercent = Math.round(yPercent / GRID_SNAP) * GRID_SNAP
 
-    Object.keys(badgePositions).forEach(otherSource => {
-      if (otherSource === source || !ratingSources[otherSource]) return
-
-      const other = badgePositions[otherSource]
-      const otherRight = other.x + badgeWidthPercent
-      const otherBottom = other.y + badgeHeightPercent
-      const otherCenterX = other.x + badgeWidthPercent / 2
-      const otherCenterY = other.y + badgeHeightPercent / 2
-
-      const dragRight = xPercent + badgeWidthPercent
-      const dragBottom = yPercent + badgeHeightPercent
-      const dragCenterX = xPercent + badgeWidthPercent / 2
-      const dragCenterY = yPercent + badgeHeightPercent / 2
-
-      // Check vertical alignments (X-axis) - only snap if not already aligned
-      if (!alignedX) {
-        if (Math.abs(xPercent - other.x) < threshold) {
-          // Left edges align
-          xPercent = other.x
-          guides.push({ type: 'vertical', position: other.x })
-          alignedX = true
-        } else if (Math.abs(dragRight - otherRight) < threshold) {
-          // Right edges align
-          xPercent = otherRight - badgeWidthPercent
-          guides.push({ type: 'vertical', position: otherRight })
-          alignedX = true
-        } else if (Math.abs(dragCenterX - otherCenterX) < threshold) {
-          // Centers align
-          xPercent = otherCenterX - badgeWidthPercent / 2
-          guides.push({ type: 'vertical', position: otherCenterX })
-          alignedX = true
-        }
-      }
-
-      // Check horizontal alignments (Y-axis) - only snap if not already aligned
-      if (!alignedY) {
-        if (Math.abs(yPercent - other.y) < threshold) {
-          // Top edges align
-          yPercent = other.y
-          guides.push({ type: 'horizontal', position: other.y })
-          alignedY = true
-        } else if (Math.abs(dragBottom - otherBottom) < threshold) {
-          // Bottom edges align
-          yPercent = otherBottom - badgeHeightPercent
-          guides.push({ type: 'horizontal', position: otherBottom })
-          alignedY = true
-        } else if (Math.abs(dragCenterY - otherCenterY) < threshold) {
-          // Centers align
-          yPercent = otherCenterY - badgeHeightPercent / 2
-          guides.push({ type: 'horizontal', position: otherCenterY })
-          alignedY = true
-        }
-      }
-    })
-
-    // Clamp to edges AFTER alignment - simple 0-100% bounds (badges can overlap edges)
+    // Clamp
     xPercent = Math.max(0, Math.min(xPercent, 100))
     yPercent = Math.max(0, Math.min(yPercent, 100))
 
-    setAlignmentGuides(guides)
-
-    const newPosition = { x: Math.round(xPercent), y: Math.round(yPercent) }
+    const newPosition = { x: xPercent, y: yPercent }
 
     // Update only this badge's position
     const updated = { ...badgePositions, [source]: newPosition }
@@ -388,7 +329,6 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
       }
     }
     setActiveDragBadge(null)
-    setAlignmentGuides([])  // Clear alignment guides
   }
 
   const startProcessing = async () => {
@@ -671,15 +611,16 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                       // SVG min dimension = min(120, 180) = 120
                       const textSizePct = badgeStyle.status_text_size ?? 12
                       const svgFontSize = Math.max(3, (textSizePct / 100) * 120)
-                      const paddingMult = badgeStyle.status_padding ?? 1.0
 
-                      // Match backend padding: pad_x = tw * 0.25 * padding, pad_y = th * 0.35 * padding
+                      // Match backend padding: pad_x uses status_padding_h, pad_y uses status_padding_v
+                      const paddingH = badgeStyle.status_padding_h ?? 1.0
+                      const paddingV = badgeStyle.status_padding_v ?? 1.0
                       const labelLen = statusConfig.label.length
                       const charWidth = svgFontSize * 0.62
                       const textW = labelLen * charWidth
                       const textH = svgFontSize
-                      const padX = textW * 0.25 * paddingMult
-                      const padY = textH * 0.35 * paddingMult
+                      const padX = textW * 0.25 * paddingH
+                      const padY = textH * 0.35 * paddingV
                       const pillW = textW + 2 * padX
                       const pillH = textH + 2 * padY
                       // For vertical text, swap pill dimensions
@@ -799,41 +740,17 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                       )
                     })()}
 
-                    {/* Alignment Guides */}
-                    {alignmentGuides.map((guide, index) => {
-                      if (guide.type === 'vertical') {
-                        // Vertical line (for X-axis alignment)
-                        const x = (guide.position / 100) * 120
-                        return (
-                          <line
-                            key={`guide-${index}`}
-                            x1={x}
-                            y1={0}
-                            x2={x}
-                            y2={180}
-                            stroke="#3b82f6"
-                            strokeWidth="1"
-                            strokeDasharray="4,4"
-                            className="pointer-events-none"
-                          />
-                        )
-                      } else {
-                        // Horizontal line (for Y-axis alignment)
-                        const y = (guide.position / 100) * 180
-                        return (
-                          <line
-                            key={`guide-${index}`}
-                            x1={0}
-                            y1={y}
-                            x2={120}
-                            y2={y}
-                            stroke="#3b82f6"
-                            strokeWidth="1"
-                            strokeDasharray="4,4"
-                            className="pointer-events-none"
-                          />
-                        )
-                      }
+                    {/* Snap Grid */}
+                    {Array.from({ length: Math.floor(100 / GRID_SNAP) - 1 }, (_, i) => {
+                      const pct = (i + 1) * GRID_SNAP
+                      const x = (pct / 100) * 120
+                      const y = (pct / 100) * 180
+                      return (
+                        <g key={`grid-${pct}`} className="pointer-events-none">
+                          <line x1={x} y1={0} x2={x} y2={180} stroke="#374151" strokeWidth="0.3" />
+                          <line x1={0} y1={y} x2={120} y2={y} stroke="#374151" strokeWidth="0.3" />
+                        </g>
+                      )
                     })}
                   </svg>
                   <div className="text-xs text-gray-500 mt-2 space-y-1">
@@ -1053,15 +970,29 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                           </div>
                           <div>
                             <label className="text-xs text-gray-400 block mb-1">
-                              Background Padding: {(badgeStyle.status_padding ?? 1.0).toFixed(1)}x
+                              Horizontal Padding: {(badgeStyle.status_padding_h ?? 1.0).toFixed(1)}x
+                            </label>
+                            <input
+                              type="range"
+                              min="0.2"
+                              max="10.0"
+                              step="0.1"
+                              value={badgeStyle.status_padding_h ?? 1.0}
+                              onChange={(e) => updateBadgeStyle('status_padding_h', parseFloat(e.target.value))}
+                              className="w-full accent-blue-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-400 block mb-1">
+                              Vertical Padding: {(badgeStyle.status_padding_v ?? 1.0).toFixed(1)}x
                             </label>
                             <input
                               type="range"
                               min="0.2"
                               max="3.0"
                               step="0.1"
-                              value={badgeStyle.status_padding ?? 1.0}
-                              onChange={(e) => updateBadgeStyle('status_padding', parseFloat(e.target.value))}
+                              value={badgeStyle.status_padding_v ?? 1.0}
+                              onChange={(e) => updateBadgeStyle('status_padding_v', parseFloat(e.target.value))}
                               className="w-full accent-blue-500"
                             />
                           </div>
