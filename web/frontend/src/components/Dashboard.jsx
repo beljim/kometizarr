@@ -619,7 +619,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                       const charWidth = svgFontSize * 0.62
                       const textW = labelLen * charWidth
                       const textH = svgFontSize
-                      const padX = textW * 0.25 * paddingH
+                      const padX = (120 / 2) * (paddingH / 10.0)
                       const padY = textH * 0.35 * paddingV
                       const pillW = textW + 2 * padX
                       const pillH = textH + 2 * padY

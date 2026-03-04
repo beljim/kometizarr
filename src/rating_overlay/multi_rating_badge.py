@@ -796,7 +796,7 @@ class MultiRatingBadge:
         bbox = draw.textbbox((0, 0), style['label'], font=font)
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
-        pad_x = int(tw * 0.25 * status_padding_h)
+        pad_x = int((poster_width / 2) * (status_padding_h / 10.0))
         pad_y = int(th * 0.35 * status_padding_v)
 
         # Dark background pill
