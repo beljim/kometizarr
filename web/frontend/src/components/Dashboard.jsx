@@ -283,7 +283,9 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
     // Calculate position as percentage of poster dimensions (0-100)
     // Individual badges are small (~12% of poster width)
     const badgeWidthPercent = badgeStyle.individual_badge_size || 12
-    const badgeHeightPercent = badgeWidthPercent * 1.4  // 1.4x aspect ratio
+    // Badge height as % of poster height: badge is badgeWidthPercent% of width, height = width * 1.4
+    // For SVG viewBox 120x180: heightPct = widthPct * 1.4 * (120/180)
+    const badgeHeightPercent = badgeWidthPercent * 1.4 * (120 / 180)
 
     // Center badge on cursor
     let xPercent = (clickX / rect.width) * 100 - (badgeWidthPercent / 2)
@@ -633,14 +635,14 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                 {/* LEFT: Draggable Poster Preview */}
                 <div className="flex-shrink-0">
                   <svg
-                    viewBox="0 0 120 168"
+                    viewBox="0 0 120 180"
                     className="w-48 h-auto select-none"
                     onMouseMove={handlePosterMouseMove}
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseUp}
                   >
                     {/* Poster Background */}
-                    <rect x="0" y="0" width="120" height="168" fill="#1f2937" stroke="#4b5563" strokeWidth="2" rx="3" />
+                    <rect x="0" y="0" width="120" height="180" fill="#1f2937" stroke="#4b5563" strokeWidth="2" rx="3" />
 
                     {/* Status Overlay Preview — draggable */}
                     {(() => {
@@ -660,21 +662,27 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
 
                       const sPos = badgeStyle.status_position || { x: 50, y: 50 }
                       const sx = typeof sPos === 'object' ? (sPos.x / 100) * 120 : 60
-                      const sy = typeof sPos === 'object' ? (sPos.y / 100) * 168 : 84
+                      const sy = typeof sPos === 'object' ? (sPos.y / 100) * 180 : 90
                       const rot = badgeStyle.status_rotation || 0
 
-                      // Scale font and pill with status_text_size (default 12% → fontSize 11 in SVG coordinates)
+                      // Scale font to match backend: font_size = min(posterW, posterH) * (textSizePct / 100)
+                      // SVG min dimension = min(120, 180) = 120
                       const textSizePct = badgeStyle.status_text_size ?? 12
-                      const svgFontSize = Math.max(6, (textSizePct / 12) * 11)
+                      const svgFontSize = Math.max(3, (textSizePct / 100) * 120)
                       const paddingMult = badgeStyle.status_padding ?? 1.0
 
+                      // Match backend padding: pad_x = tw * 0.25 * padding, pad_y = th * 0.35 * padding
                       const labelLen = statusConfig.label.length
-                      const charWidth = svgFontSize * 0.68
-                      const textW = Math.max(labelLen * charWidth + 6 * paddingMult, 40)
-                      const textH = svgFontSize + 6 * paddingMult
+                      const charWidth = svgFontSize * 0.62
+                      const textW = labelLen * charWidth
+                      const textH = svgFontSize
+                      const padX = textW * 0.25 * paddingMult
+                      const padY = textH * 0.35 * paddingMult
+                      const pillW = textW + 2 * padX
+                      const pillH = textH + 2 * padY
                       // For vertical text, swap pill dimensions
-                      const bgW = rot === 0 ? textW : textH
-                      const bgH = rot === 0 ? textH : textW
+                      const bgW = rot === 0 ? pillW : pillH
+                      const bgH = rot === 0 ? pillH : pillW
 
                       return (
                         <g
@@ -747,9 +755,9 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                               className="cursor-move"
                               onMouseDown={(e) => handleBadgeMouseDown(e, 'tmdb')}
                             >
-                              <rect x={(badgePositions.tmdb.x / 100) * 120} y={(badgePositions.tmdb.y / 100) * 168} width={badgeWidth} height={badgeHeight} fill="#000" fillOpacity={opacity} rx="2" />
-                              <rect x={(badgePositions.tmdb.x / 100) * 120 + badgeWidth * 0.1} y={(badgePositions.tmdb.y / 100) * 168 + badgeHeight * 0.05} width={badgeWidth * 0.8} height={logoAreaHeight * 0.85} fill="#4a9eff" fillOpacity={0.35} rx="1" className="pointer-events-none" />
-                              <text x={(badgePositions.tmdb.x / 100) * 120 + badgeWidth / 2} y={(badgePositions.tmdb.y / 100) * 168 + badgeHeight * 0.80} fontSize={fontSize} fill={badgeStyle.rating_color || '#FFD700'} textAnchor="middle" dominantBaseline="middle" fontFamily={fontFamily} fontStyle={fontStyle} fontWeight={fontWeight} className="pointer-events-none select-none">T</text>
+                              <rect x={(badgePositions.tmdb.x / 100) * 120} y={(badgePositions.tmdb.y / 100) * 180} width={badgeWidth} height={badgeHeight} fill="#000" fillOpacity={opacity} rx="2" />
+                              <rect x={(badgePositions.tmdb.x / 100) * 120 + badgeWidth * 0.1} y={(badgePositions.tmdb.y / 100) * 180 + badgeHeight * 0.05} width={badgeWidth * 0.8} height={logoAreaHeight * 0.85} fill="#4a9eff" fillOpacity={0.35} rx="1" className="pointer-events-none" />
+                              <text x={(badgePositions.tmdb.x / 100) * 120 + badgeWidth / 2} y={(badgePositions.tmdb.y / 100) * 180 + badgeHeight * 0.80} fontSize={fontSize} fill={badgeStyle.rating_color || '#FFD700'} textAnchor="middle" dominantBaseline="middle" fontFamily={fontFamily} fontStyle={fontStyle} fontWeight={fontWeight} className="pointer-events-none select-none">T</text>
                             </g>
                           )}
 
@@ -758,9 +766,9 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                               className="cursor-move"
                               onMouseDown={(e) => handleBadgeMouseDown(e, 'imdb')}
                             >
-                              <rect x={(badgePositions.imdb.x / 100) * 120} y={(badgePositions.imdb.y / 100) * 168} width={badgeWidth} height={badgeHeight} fill="#000" fillOpacity={opacity} rx="2" />
-                              <rect x={(badgePositions.imdb.x / 100) * 120 + badgeWidth * 0.1} y={(badgePositions.imdb.y / 100) * 168 + badgeHeight * 0.05} width={badgeWidth * 0.8} height={logoAreaHeight * 0.85} fill="#f5c518" fillOpacity={0.35} rx="1" className="pointer-events-none" />
-                              <text x={(badgePositions.imdb.x / 100) * 120 + badgeWidth / 2} y={(badgePositions.imdb.y / 100) * 168 + badgeHeight * 0.80} fontSize={fontSize} fill={badgeStyle.rating_color || '#FFD700'} textAnchor="middle" dominantBaseline="middle" fontFamily={fontFamily} fontStyle={fontStyle} fontWeight={fontWeight} className="pointer-events-none select-none">I</text>
+                              <rect x={(badgePositions.imdb.x / 100) * 120} y={(badgePositions.imdb.y / 100) * 180} width={badgeWidth} height={badgeHeight} fill="#000" fillOpacity={opacity} rx="2" />
+                              <rect x={(badgePositions.imdb.x / 100) * 120 + badgeWidth * 0.1} y={(badgePositions.imdb.y / 100) * 180 + badgeHeight * 0.05} width={badgeWidth * 0.8} height={logoAreaHeight * 0.85} fill="#f5c518" fillOpacity={0.35} rx="1" className="pointer-events-none" />
+                              <text x={(badgePositions.imdb.x / 100) * 120 + badgeWidth / 2} y={(badgePositions.imdb.y / 100) * 180 + badgeHeight * 0.80} fontSize={fontSize} fill={badgeStyle.rating_color || '#FFD700'} textAnchor="middle" dominantBaseline="middle" fontFamily={fontFamily} fontStyle={fontStyle} fontWeight={fontWeight} className="pointer-events-none select-none">I</text>
                             </g>
                           )}
 
@@ -769,9 +777,9 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                               className="cursor-move"
                               onMouseDown={(e) => handleBadgeMouseDown(e, 'rt_critic')}
                             >
-                              <rect x={(badgePositions.rt_critic.x / 100) * 120} y={(badgePositions.rt_critic.y / 100) * 168} width={badgeWidth} height={badgeHeight} fill="#000" fillOpacity={opacity} rx="2" />
-                              <rect x={(badgePositions.rt_critic.x / 100) * 120 + badgeWidth * 0.1} y={(badgePositions.rt_critic.y / 100) * 168 + badgeHeight * 0.05} width={badgeWidth * 0.8} height={logoAreaHeight * 0.85} fill="#fa320a" fillOpacity={0.35} rx="1" className="pointer-events-none" />
-                              <text x={(badgePositions.rt_critic.x / 100) * 120 + badgeWidth / 2} y={(badgePositions.rt_critic.y / 100) * 168 + badgeHeight * 0.80} fontSize={fontSize} fill={badgeStyle.rating_color || '#FFD700'} textAnchor="middle" dominantBaseline="middle" fontFamily={fontFamily} fontStyle={fontStyle} fontWeight={fontWeight} className="pointer-events-none select-none">C</text>
+                              <rect x={(badgePositions.rt_critic.x / 100) * 120} y={(badgePositions.rt_critic.y / 100) * 180} width={badgeWidth} height={badgeHeight} fill="#000" fillOpacity={opacity} rx="2" />
+                              <rect x={(badgePositions.rt_critic.x / 100) * 120 + badgeWidth * 0.1} y={(badgePositions.rt_critic.y / 100) * 180 + badgeHeight * 0.05} width={badgeWidth * 0.8} height={logoAreaHeight * 0.85} fill="#fa320a" fillOpacity={0.35} rx="1" className="pointer-events-none" />
+                              <text x={(badgePositions.rt_critic.x / 100) * 120 + badgeWidth / 2} y={(badgePositions.rt_critic.y / 100) * 180 + badgeHeight * 0.80} fontSize={fontSize} fill={badgeStyle.rating_color || '#FFD700'} textAnchor="middle" dominantBaseline="middle" fontFamily={fontFamily} fontStyle={fontStyle} fontWeight={fontWeight} className="pointer-events-none select-none">C</text>
                             </g>
                           )}
 
@@ -780,9 +788,9 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                               className="cursor-move"
                               onMouseDown={(e) => handleBadgeMouseDown(e, 'rt_audience')}
                             >
-                              <rect x={(badgePositions.rt_audience.x / 100) * 120} y={(badgePositions.rt_audience.y / 100) * 168} width={badgeWidth} height={badgeHeight} fill="#000" fillOpacity={opacity} rx="2" />
-                              <rect x={(badgePositions.rt_audience.x / 100) * 120 + badgeWidth * 0.1} y={(badgePositions.rt_audience.y / 100) * 168 + badgeHeight * 0.05} width={badgeWidth * 0.8} height={logoAreaHeight * 0.85} fill="#fa320a" fillOpacity={0.25} rx="1" className="pointer-events-none" />
-                              <text x={(badgePositions.rt_audience.x / 100) * 120 + badgeWidth / 2} y={(badgePositions.rt_audience.y / 100) * 168 + badgeHeight * 0.80} fontSize={fontSize} fill={badgeStyle.rating_color || '#FFD700'} textAnchor="middle" dominantBaseline="middle" fontFamily={fontFamily} fontStyle={fontStyle} fontWeight={fontWeight} className="pointer-events-none select-none">A</text>
+                              <rect x={(badgePositions.rt_audience.x / 100) * 120} y={(badgePositions.rt_audience.y / 100) * 180} width={badgeWidth} height={badgeHeight} fill="#000" fillOpacity={opacity} rx="2" />
+                              <rect x={(badgePositions.rt_audience.x / 100) * 120 + badgeWidth * 0.1} y={(badgePositions.rt_audience.y / 100) * 180 + badgeHeight * 0.05} width={badgeWidth * 0.8} height={logoAreaHeight * 0.85} fill="#fa320a" fillOpacity={0.25} rx="1" className="pointer-events-none" />
+                              <text x={(badgePositions.rt_audience.x / 100) * 120 + badgeWidth / 2} y={(badgePositions.rt_audience.y / 100) * 180 + badgeHeight * 0.80} fontSize={fontSize} fill={badgeStyle.rating_color || '#FFD700'} textAnchor="middle" dominantBaseline="middle" fontFamily={fontFamily} fontStyle={fontStyle} fontWeight={fontWeight} className="pointer-events-none select-none">A</text>
                             </g>
                           )}
                         </>
@@ -800,7 +808,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                             x1={x}
                             y1={0}
                             x2={x}
-                            y2={168}
+                            y2={180}
                             stroke="#3b82f6"
                             strokeWidth="1"
                             strokeDasharray="4,4"
@@ -809,7 +817,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                         )
                       } else {
                         // Horizontal line (for Y-axis alignment)
-                        const y = (guide.position / 100) * 168
+                        const y = (guide.position / 100) * 180
                         return (
                           <line
                             key={`guide-${index}`}
