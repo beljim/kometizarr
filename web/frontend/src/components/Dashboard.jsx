@@ -29,7 +29,9 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
     rt_audience: { x: 70, y: 78 }    // Bottom-right
   }
   const DEFAULT_RATING_SOURCES = { tmdb: true, imdb: true, rt_critic: true, rt_audience: true }
-  const [mediaTypeTab, setMediaTypeTab] = useState('movie') // 'movie' or 'tv'
+  const [mediaTypeTab, setMediaTypeTab] = useState(() => {
+    return localStorage.getItem('kometizarr_media_type_tab') || 'movie'
+  })
   // Per-type settings stored as { movie: {...}, tv: {...} }
   const [perTypePositions, setPerTypePositions] = useState(() => {
     const saved = localStorage.getItem('kometizarr_per_type_positions')
@@ -617,13 +619,13 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
               <label className="block text-sm font-medium">Badge Positions & Styling</label>
               <div className="flex bg-gray-900 border border-gray-700 rounded-lg overflow-hidden">
                 <button
-                  onClick={() => setMediaTypeTab('movie')}
+                  onClick={() => { setMediaTypeTab('movie'); localStorage.setItem('kometizarr_media_type_tab', 'movie') }}
                   className={`px-4 py-1.5 text-xs font-medium transition ${mediaTypeTab === 'movie' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
                 >
                   🎬 Movies
                 </button>
                 <button
-                  onClick={() => setMediaTypeTab('tv')}
+                  onClick={() => { setMediaTypeTab('tv'); localStorage.setItem('kometizarr_media_type_tab', 'tv') }}
                   className={`px-4 py-1.5 text-xs font-medium transition ${mediaTypeTab === 'tv' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}
                 >
                   📺 TV Shows
@@ -993,74 +995,78 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                     </div>
                   </div>
 
-                  {/* Series Status Overlay */}
-                  <div>
-                    <label className="text-xs text-gray-400 block mb-1">
-                      Status Overlay
-                    </label>
-                    <select
-                      value={badgeStyle.status_overlay || 'none'}
-                      onChange={(e) => updateBadgeStyle('status_overlay', e.target.value)}
-                      className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white"
-                    >
-                      <option value="none">Off</option>
-                      <option value="auto">Auto (per item)</option>
-                      <option value="current">Current</option>
-                      <option value="renewed">Renewed</option>
-                      <option value="ended">Ended</option>
-                      <option value="cancelled">Cancelled</option>
-                    </select>
-                    <div className="mt-2 p-2 bg-gray-800/60 border border-gray-700 rounded text-xs text-gray-400 leading-relaxed">
-                      <span className="text-gray-300 font-medium">Auto mode:</span> TV libraries only. Uses Plex status first, then TMDB fallback.
-                      <span className="block mt-1">Mapped values: cancelled → <span className="text-red-400">Cancelled</span>, ended → <span className="text-orange-400">Ended</span>, renewed/returning → <span className="text-green-400">Renewed</span>, in production/continuing/current/running/planned/pilot → <span className="text-blue-400">Current</span>. Unknown status = no stamp.</span>
-                    </div>
-                  </div>
-
-                  {/* Text Direction, Text Size, Padding — only show when status overlay is active */}
-                  {badgeStyle.status_overlay && badgeStyle.status_overlay !== 'none' && (
+                  {/* Series Status Overlay — TV only */}
+                  {mediaTypeTab === 'tv' && (
                     <>
                       <div>
                         <label className="text-xs text-gray-400 block mb-1">
-                          Text Direction
+                          Status Overlay
                         </label>
                         <select
-                          value={badgeStyle.status_rotation || 0}
-                          onChange={(e) => updateBadgeStyle('status_rotation', Number(e.target.value))}
+                          value={badgeStyle.status_overlay || 'none'}
+                          onChange={(e) => updateBadgeStyle('status_overlay', e.target.value)}
                           className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white"
                         >
-                          <option value={0}>Horizontal</option>
-                          <option value={90}>Vertical ↓</option>
-                          <option value={-90}>Vertical ↑</option>
+                          <option value="none">Off</option>
+                          <option value="auto">Auto (per item)</option>
+                          <option value="current">Current</option>
+                          <option value="renewed">Renewed</option>
+                          <option value="ended">Ended</option>
+                          <option value="cancelled">Cancelled</option>
                         </select>
+                        <div className="mt-2 p-2 bg-gray-800/60 border border-gray-700 rounded text-xs text-gray-400 leading-relaxed">
+                          <span className="text-gray-300 font-medium">Auto mode:</span> Uses Plex status first, then TMDB fallback.
+                          <span className="block mt-1">Mapped values: cancelled → <span className="text-red-400">Cancelled</span>, ended → <span className="text-orange-400">Ended</span>, renewed/returning → <span className="text-green-400">Renewed</span>, in production/continuing/current/running/planned/pilot → <span className="text-blue-400">Current</span>. Unknown status = no stamp.</span>
+                        </div>
                       </div>
-                      <div>
-                        <label className="text-xs text-gray-400 block mb-1">
-                          Status Text Size: {badgeStyle.status_text_size ?? 12}%
-                        </label>
-                        <input
-                          type="range"
-                          min="4"
-                          max="30"
-                          step="1"
-                          value={badgeStyle.status_text_size ?? 12}
-                          onChange={(e) => updateBadgeStyle('status_text_size', parseInt(e.target.value))}
-                          className="w-full accent-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-gray-400 block mb-1">
-                          Background Padding: {(badgeStyle.status_padding ?? 1.0).toFixed(1)}x
-                        </label>
-                        <input
-                          type="range"
-                          min="0.2"
-                          max="3.0"
-                          step="0.1"
-                          value={badgeStyle.status_padding ?? 1.0}
-                          onChange={(e) => updateBadgeStyle('status_padding', parseFloat(e.target.value))}
-                          className="w-full accent-blue-500"
-                        />
-                      </div>
+
+                      {/* Text Direction, Text Size, Padding — only show when status overlay is active */}
+                      {badgeStyle.status_overlay && badgeStyle.status_overlay !== 'none' && (
+                        <>
+                          <div>
+                            <label className="text-xs text-gray-400 block mb-1">
+                              Text Direction
+                            </label>
+                            <select
+                              value={badgeStyle.status_rotation || 0}
+                              onChange={(e) => updateBadgeStyle('status_rotation', Number(e.target.value))}
+                              className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white"
+                            >
+                              <option value={0}>Horizontal</option>
+                              <option value={90}>Vertical ↓</option>
+                              <option value={-90}>Vertical ↑</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-400 block mb-1">
+                              Status Text Size: {badgeStyle.status_text_size ?? 12}%
+                            </label>
+                            <input
+                              type="range"
+                              min="4"
+                              max="30"
+                              step="1"
+                              value={badgeStyle.status_text_size ?? 12}
+                              onChange={(e) => updateBadgeStyle('status_text_size', parseInt(e.target.value))}
+                              className="w-full accent-blue-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-400 block mb-1">
+                              Background Padding: {(badgeStyle.status_padding ?? 1.0).toFixed(1)}x
+                            </label>
+                            <input
+                              type="range"
+                              min="0.2"
+                              max="3.0"
+                              step="0.1"
+                              value={badgeStyle.status_padding ?? 1.0}
+                              onChange={(e) => updateBadgeStyle('status_padding', parseFloat(e.target.value))}
+                              className="w-full accent-blue-500"
+                            />
+                          </div>
+                        </>
+                      )}
                     </>
                   )}
 
@@ -1180,37 +1186,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
             )}
           </div>
 
-          {/* Status Overlay Quick Toggle */}
-          <div>
-            <label className="block text-sm font-medium mb-2">Status Overlay</label>
-            <div className="flex items-center gap-3">
-              {['none', 'auto', 'current', 'renewed', 'ended', 'cancelled'].map(opt => {
-                const active = (badgeStyle.status_overlay || 'none') === opt
-                const colors = {
-                  none: 'border-gray-600 text-gray-400',
-                  auto: active ? 'border-gray-400 bg-gray-700 text-white' : 'border-gray-600 text-gray-400',
-                  current: active ? 'border-blue-500 bg-blue-900/40 text-blue-300' : 'border-gray-600 text-gray-400',
-                  renewed: active ? 'border-green-500 bg-green-900/40 text-green-300' : 'border-gray-600 text-gray-400',
-                  ended: active ? 'border-orange-500 bg-orange-900/40 text-orange-300' : 'border-gray-600 text-gray-400',
-                  cancelled: active ? 'border-red-500 bg-red-900/40 text-red-300' : 'border-gray-600 text-gray-400',
-                }
-                return (
-                  <button
-                    key={opt}
-                    onClick={() => updateBadgeStyle('status_overlay', opt)}
-                    className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition hover:border-gray-500 ${active ? colors[opt] : colors[opt]}`}
-                  >
-                    {opt === 'none' ? 'Off' : opt.charAt(0).toUpperCase() + opt.slice(1)}
-                  </button>
-                )
-              })}
-            </div>
-            <p className="text-xs text-gray-500 mt-1.5">
-              {mediaTypeTab === 'movie' ? 'Status overlays only apply to TV show libraries.' : 'Auto mode reads status from Plex/TMDB per show.'}
-            </p>
-          </div>
-
-          {/* Action Buttons */}
+          {/* Action Buttons */
           <div className="grid grid-cols-3 gap-3">
             <button
               onClick={restoreOriginals}
