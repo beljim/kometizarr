@@ -17,6 +17,12 @@ export default function Gallery() {
   const [loading, setLoading] = useState(false)
   const [posterVersion, setPosterVersion] = useState('overlay') // 'overlay' or 'original'
 
+  // Status badge overlay controls
+  const [badgeTextSize, setBadgeTextSize] = useState(10)
+  const [badgePaddingX, setBadgePaddingX] = useState(6)
+  const [badgePaddingY, setBadgePaddingY] = useState(2)
+  const [showBadgeControls, setShowBadgeControls] = useState(false)
+
   useEffect(() => {
     fetch('/api/libraries').then(r => r.json()).then(d => setLibraries(d.libraries || []))
   }, [])
@@ -66,20 +72,28 @@ export default function Gallery() {
             {libraries.map(lib => <option key={lib.name} value={lib.name}>{lib.name}</option>)}
           </select>
           {selectedLib && (
-            <div className="flex bg-gray-800 border border-gray-700 rounded overflow-hidden">
+            <>
+              <div className="flex bg-gray-800 border border-gray-700 rounded overflow-hidden">
+                <button
+                  onClick={() => setPosterVersion('overlay')}
+                  className={`px-3 py-1.5 text-xs transition ${posterVersion === 'overlay' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                >
+                  Overlay
+                </button>
+                <button
+                  onClick={() => setPosterVersion('original')}
+                  className={`px-3 py-1.5 text-xs transition ${posterVersion === 'original' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                >
+                  Original
+                </button>
+              </div>
               <button
-                onClick={() => setPosterVersion('overlay')}
-                className={`px-3 py-1.5 text-xs transition ${posterVersion === 'overlay' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                onClick={() => setShowBadgeControls(v => !v)}
+                className={`px-3 py-1.5 text-xs rounded border transition ${showBadgeControls ? 'bg-purple-600 border-purple-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-white'}`}
               >
-                Overlay
+                Badge Style
               </button>
-              <button
-                onClick={() => setPosterVersion('original')}
-                className={`px-3 py-1.5 text-xs transition ${posterVersion === 'original' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
-              >
-                Original
-              </button>
-            </div>
+            </>
           )}
         </div>
       </div>
@@ -97,6 +111,43 @@ export default function Gallery() {
         </div>
       ) : (
         <>
+          {showBadgeControls && (
+            <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 flex flex-wrap items-end gap-6">
+              <div className="space-y-1">
+                <label className="text-gray-400 text-xs block">Text Size ({badgeTextSize}px)</label>
+                <input
+                  type="range" min={6} max={20} value={badgeTextSize}
+                  onChange={e => setBadgeTextSize(Number(e.target.value))}
+                  className="w-32 accent-purple-500"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-gray-400 text-xs block">Horizontal Padding ({badgePaddingX}px)</label>
+                <input
+                  type="range" min={2} max={20} value={badgePaddingX}
+                  onChange={e => setBadgePaddingX(Number(e.target.value))}
+                  className="w-32 accent-purple-500"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-gray-400 text-xs block">Vertical Padding ({badgePaddingY}px)</label>
+                <input
+                  type="range" min={0} max={12} value={badgePaddingY}
+                  onChange={e => setBadgePaddingY(Number(e.target.value))}
+                  className="w-32 accent-purple-500"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500 text-xs">Preview:</span>
+                <span
+                  className="rounded font-medium bg-green-700/50 text-green-300"
+                  style={{ fontSize: `${badgeTextSize}px`, padding: `${badgePaddingY}px ${badgePaddingX}px` }}
+                >
+                  Overlay
+                </span>
+              </div>
+            </div>
+          )}
           <p className="text-xs text-gray-500">{total} items total</p>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {items.map(item => {
@@ -113,7 +164,10 @@ export default function Gallery() {
                       onError={e => { e.target.style.display = 'none' }}
                     />
                     {/* Status badge */}
-                    <span className={`absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded text-[10px] font-medium ${s.bg} ${s.text}`}>
+                    <span
+                      className={`absolute top-1.5 right-1.5 rounded font-medium ${s.bg} ${s.text}`}
+                      style={{ fontSize: `${badgeTextSize}px`, padding: `${badgePaddingY}px ${badgePaddingX}px` }}
+                    >
                       {s.label}
                     </span>
                     {/* Hover actions */}
