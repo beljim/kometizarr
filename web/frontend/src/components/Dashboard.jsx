@@ -1186,7 +1186,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
             )}
           </div>
 
-          {/* Action Buttons */
+          {/* Action Buttons */}
           <div className="grid grid-cols-3 gap-3">
             <button
               onClick={restoreOriginals}
