@@ -10,7 +10,9 @@ const DEFAULT_BADGE_STYLE = {
   badge_template: 'default',  // Badge template (default, minimal, pill, bordered, gradient, square)
   status_overlay: 'none', // none | auto | current | renewed | cancelled
   status_position: { x: 50, y: 50 }, // {x, y} percentage — draggable like badges
-  status_rotation: 0 // 0 = horizontal, 90 = vertical (top-to-bottom), -90 = vertical (bottom-to-top)
+  status_rotation: 0, // 0 = horizontal, 90 = vertical (top-to-bottom), -90 = vertical (bottom-to-top)
+  status_text_size: 12, // % of poster min dimension (default 12%)
+  status_padding: 1.0, // background padding multiplier (0.2 – 3.0)
 }
 
 function Dashboard({ onStartProcessing, onLibrarySelect }) {
@@ -570,9 +572,15 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                       const sy = typeof sPos === 'object' ? (sPos.y / 100) * 168 : 84
                       const rot = badgeStyle.status_rotation || 0
 
+                      // Scale font and pill with status_text_size (default 12% → fontSize 11 in SVG coordinates)
+                      const textSizePct = badgeStyle.status_text_size ?? 12
+                      const svgFontSize = Math.max(6, (textSizePct / 12) * 11)
+                      const paddingMult = badgeStyle.status_padding ?? 1.0
+
                       const labelLen = statusConfig.label.length
-                      const textW = Math.max(labelLen * 7.5 + 6, 40)
-                      const textH = 16
+                      const charWidth = svgFontSize * 0.68
+                      const textW = Math.max(labelLen * charWidth + 6 * paddingMult, 40)
+                      const textH = svgFontSize + 6 * paddingMult
                       // For vertical text, swap pill dimensions
                       const bgW = rot === 0 ? textW : textH
                       const bgH = rot === 0 ? textH : textW
@@ -594,7 +602,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                           <text
                             x={sx}
                             y={sy}
-                            fontSize="11"
+                            fontSize={svgFontSize}
                             fontWeight="700"
                             fill={statusConfig.color}
                             textAnchor="middle"
@@ -909,22 +917,52 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                     </div>
                   </div>
 
-                  {/* Text Direction (rotation) — only show when status overlay is active */}
+                  {/* Text Direction, Text Size, Padding — only show when status overlay is active */}
                   {badgeStyle.status_overlay && badgeStyle.status_overlay !== 'none' && (
-                    <div>
-                      <label className="text-xs text-gray-400 block mb-1">
-                        Text Direction
-                      </label>
-                      <select
-                        value={badgeStyle.status_rotation || 0}
-                        onChange={(e) => updateBadgeStyle('status_rotation', Number(e.target.value))}
-                        className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white"
-                      >
-                        <option value={0}>Horizontal</option>
-                        <option value={90}>Vertical ↓</option>
-                        <option value={-90}>Vertical ↑</option>
-                      </select>
-                    </div>
+                    <>
+                      <div>
+                        <label className="text-xs text-gray-400 block mb-1">
+                          Text Direction
+                        </label>
+                        <select
+                          value={badgeStyle.status_rotation || 0}
+                          onChange={(e) => updateBadgeStyle('status_rotation', Number(e.target.value))}
+                          className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white"
+                        >
+                          <option value={0}>Horizontal</option>
+                          <option value={90}>Vertical ↓</option>
+                          <option value={-90}>Vertical ↑</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 block mb-1">
+                          Status Text Size: {badgeStyle.status_text_size ?? 12}%
+                        </label>
+                        <input
+                          type="range"
+                          min="4"
+                          max="30"
+                          step="1"
+                          value={badgeStyle.status_text_size ?? 12}
+                          onChange={(e) => updateBadgeStyle('status_text_size', parseInt(e.target.value))}
+                          className="w-full accent-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 block mb-1">
+                          Background Padding: {(badgeStyle.status_padding ?? 1.0).toFixed(1)}x
+                        </label>
+                        <input
+                          type="range"
+                          min="0.2"
+                          max="3.0"
+                          step="0.1"
+                          value={badgeStyle.status_padding ?? 1.0}
+                          onChange={(e) => updateBadgeStyle('status_padding', parseFloat(e.target.value))}
+                          className="w-full accent-blue-500"
+                        />
+                      </div>
+                    </>
                   )}
 
                   {/* Reset Button */}

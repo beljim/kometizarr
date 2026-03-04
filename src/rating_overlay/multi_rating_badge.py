@@ -659,6 +659,8 @@ class MultiRatingBadge:
         status_overlay = (badge_style or {}).get('status_overlay', 'none')
         status_position = (badge_style or {}).get('status_position', 'center')
         status_rotation = (badge_style or {}).get('status_rotation', 0)
+        status_text_size = (badge_style or {}).get('status_text_size', 12)
+        status_padding = (badge_style or {}).get('status_padding', 1.0)
 
         # MODE 1: Individual badges (new 4-badge system)
         if badge_positions:
@@ -686,7 +688,7 @@ class MultiRatingBadge:
                 # Composite badge onto poster
                 poster.paste(badge, (badge_x, badge_y), badge)
 
-            self._apply_status_overlay(poster, status_overlay, status_position, status_rotation)
+            self._apply_status_overlay(poster, status_overlay, status_position, status_rotation, status_text_size, status_padding)
 
             # Save
             poster_rgb = poster.convert('RGB')
@@ -734,7 +736,7 @@ class MultiRatingBadge:
             # Composite badge onto poster
             poster.paste(badge, (badge_x, badge_y), badge)
 
-            self._apply_status_overlay(poster, status_overlay, status_position, status_rotation)
+            self._apply_status_overlay(poster, status_overlay, status_position, status_rotation, status_text_size, status_padding)
 
             # Save
             poster_rgb = poster.convert('RGB')
@@ -746,7 +748,7 @@ class MultiRatingBadge:
 
             return poster
 
-    def _apply_status_overlay(self, poster: Image.Image, status_overlay: Optional[str], status_position = 'center', status_rotation: int = 0):
+    def _apply_status_overlay(self, poster: Image.Image, status_overlay: Optional[str], status_position = 'center', status_rotation: int = 0, status_text_size: int = 12, status_padding: float = 1.0):
         """Apply a status text overlay with dark background on a poster."""
         if not status_overlay:
             return
@@ -757,7 +759,7 @@ class MultiRatingBadge:
 
         style = self.STATUS_STYLES[status_key]
         poster_width, poster_height = poster.size
-        font_size = max(24, int(min(poster_width, poster_height) * 0.12))
+        font_size = max(24, int(min(poster_width, poster_height) * (status_text_size / 100)))
 
         try:
             font = ImageFont.truetype(self.FONT_PATHS['DejaVu Sans Bold'], font_size)
@@ -793,8 +795,8 @@ class MultiRatingBadge:
         bbox = draw.textbbox((0, 0), style['label'], font=font)
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
-        pad_x = int(tw * 0.25)
-        pad_y = int(th * 0.35)
+        pad_x = int(tw * 0.25 * status_padding)
+        pad_y = int(th * 0.35 * status_padding)
 
         # Dark background pill
         bg_rect = [
