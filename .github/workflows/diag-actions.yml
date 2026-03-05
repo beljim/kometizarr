@@ -1,0 +1,15 @@
+name: Actions Diagnostic
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Echo
+        run: |
+          echo "GitHub Actions queue is working"
+          echo "SHA=${GITHUB_SHA}"
