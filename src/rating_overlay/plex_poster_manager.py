@@ -435,6 +435,16 @@ class PlexPosterManager:
             # Remove zero-value ratings (no votes yet = nothing meaningful to display)
             ratings = {k: v for k, v in ratings.items() if v and v > 0}
 
+            # Compute average rating if enabled
+            if self.rating_sources and self.rating_sources.get('average', False):
+                real_ratings = {k: v for k, v in ratings.items() if k != 'average' and v and v > 0}
+                if real_ratings:
+                    # Normalize: RT is 0-100, others 0-10 — convert all to 0-10
+                    normalized = []
+                    for k, v in real_ratings.items():
+                        normalized.append(v / 10.0 if k in ('rt_critic', 'rt_audience') else v)
+                    ratings['average'] = round(sum(normalized) / len(normalized), 1)
+
             # Check if we have ANY ratings to display
             if not ratings:
                 selected_status = str((self.badge_style or {}).get('status_overlay', 'none')).strip().lower()

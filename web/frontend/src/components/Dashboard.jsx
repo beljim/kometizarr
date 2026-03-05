@@ -7,7 +7,7 @@ const DEFAULT_BADGE_STYLE = {
   rating_color: '#FFD700',    // Gold color (default)
   background_opacity: 128,    // 0-255, default 128 (50%)
   font_family: 'DejaVu Sans Bold',  // Font family
-  badge_template: 'default',  // Badge template (default, minimal, pill, bordered, gradient, square, text_only)
+  badge_template: 'default',  // Badge template (default, minimal, pill, bordered, gradient, square, text_only, star)
   badge_aspect_ratio: 1.4,    // Badge height = width * aspect_ratio (0.5 – 2.0)
   badge_shadow: false,        // Drop shadow behind badges
   per_badge_size: {},          // Per-source size overrides { tmdb: 15, imdb: 10, ... }
@@ -37,9 +37,10 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
     tmdb: { x: 2, y: 2 },           // Top-left
     imdb: { x: 70, y: 2 },          // Top-right (70% across to fit ~12% badge + margin)
     rt_critic: { x: 2, y: 78 },      // Bottom-left (78% down to fit ~20% badge + margin)
-    rt_audience: { x: 70, y: 78 }    // Bottom-right
+    rt_audience: { x: 70, y: 78 },    // Bottom-right
+    average: { x: 36, y: 40 }        // Center
   }
-  const DEFAULT_RATING_SOURCES = { tmdb: true, imdb: true, rt_critic: true, rt_audience: true }
+  const DEFAULT_RATING_SOURCES = { tmdb: true, imdb: true, rt_critic: true, rt_audience: true, average: false }
   const [mediaTypeTab, setMediaTypeTab] = useState(() => {
     return localStorage.getItem('kometizarr_media_type_tab') || 'movie'
   })
@@ -696,13 +697,17 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                       const badgeWidth = (badgeSizePercent / 100) * 120  // Scale to SVG viewBox
                       const aspectRatio = badgeStyle.badge_aspect_ratio ?? 1.4
                       const badgeHeight = badgeWidth * aspectRatio
-                      const isTextOnly = (badgeStyle.badge_template === 'text_only')
+                      const template = badgeStyle.badge_template || 'default'
+                      const isTextOnly = template === 'text_only'
+                      const isStar = template === 'star'
                       const logoMultiplier = badgeStyle.logo_size_multiplier || 1.0
                       const fontMultiplier = badgeStyle.font_size_multiplier || 1.0
-                      // Logo occupies top 60% of badge, scaled by logo_size_multiplier (max 2.0 → full area)
-                      const logoAreaHeight = badgeHeight * 0.6 * Math.min(logoMultiplier / 2.0, 1.0)
-                      // Font size applies to bottom 40% (rating number), scaled by font_size_multiplier
-                      const fontSize = (badgeWidth / 14) * 8 * fontMultiplier
+                      // Clamp logo area to never exceed badge bounds
+                      const logoAreaHeight = Math.min(badgeHeight * 0.6 * Math.min(logoMultiplier / 2.0, 1.0), badgeHeight * 0.58)
+                      // Clamp font size to not exceed badge width or bottom section height
+                      const rawFontSize = (badgeWidth / 14) * 8 * fontMultiplier
+                      const maxFontSize = Math.min(badgeWidth * 0.9, badgeHeight * 0.38)
+                      const fontSize = Math.min(rawFontSize, maxFontSize)
                       const opacity = (badgeStyle.background_opacity || 128) / 255
 
                       // Map font family to CSS font-family for SVG
@@ -724,51 +729,73 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                       const fontStyle = getFontStyle(badgeStyle.font_family || 'DejaVu Sans Bold')
                       const fontWeight = getFontWeight(badgeStyle.font_family || 'DejaVu Sans Bold')
 
+                      // Compute SVG corner radius for template
+                      const getRx = () => {
+                        if (template === 'pill') return Math.min(badgeWidth, badgeHeight) / 2
+                        if (template === 'square' || template === 'star') return 0
+                        return 2
+                      }
+
+                      // Generate star polygon points for SVG
+                      const starPoints = (cx, cy, outerR, innerR) => {
+                        const pts = []
+                        for (let i = 0; i < 10; i++) {
+                          const angle = Math.PI / 2 + i * Math.PI / 5
+                          const r = i % 2 === 0 ? outerR : innerR
+                          pts.push(`${cx + r * Math.cos(angle)},${cy - r * Math.sin(angle)}`)
+                        }
+                        return pts.join(' ')
+                      }
+
+                      // SVG badge background shape element
+                      const BadgeShape = ({ bx, by, borderColor }) => {
+                        if (template === 'minimal' || isTextOnly) return null
+                        if (isStar) {
+                          const cx = bx + badgeWidth / 2
+                          const cy = by + badgeHeight / 2
+                          const outerR = Math.min(badgeWidth, badgeHeight) / 2
+                          const innerR = outerR * 0.4
+                          return <polygon points={starPoints(cx, cy, outerR, innerR)} fill="#000" fillOpacity={opacity} className="pointer-events-none" />
+                        }
+                        const rx = getRx()
+                        return (
+                          <>
+                            <rect x={bx} y={by} width={badgeWidth} height={badgeHeight} fill="#000" fillOpacity={opacity} rx={rx} />
+                            {template === 'bordered' && (
+                              <rect x={bx + 0.5} y={by + 0.5} width={badgeWidth - 1} height={badgeHeight - 1} fill="none" stroke={borderColor || badgeStyle.rating_color || '#FFD700'} strokeWidth={Math.max(0.5, badgeWidth * 0.04)} rx={rx} className="pointer-events-none" />
+                            )}
+                          </>
+                        )
+                      }
+
+                      // Clamp logo area rect inside badge
+                      const clampedLogoW = Math.min(badgeWidth * 0.8, badgeWidth - 2)
+                      const clampedLogoH = Math.min(logoAreaHeight * 0.85, badgeHeight * 0.55)
+
+                      const BADGE_SOURCES = [
+                        { key: 'tmdb', label: 'T', logoColor: '#4a9eff', logoOpacity: 0.35 },
+                        { key: 'imdb', label: 'I', logoColor: '#f5c518', logoOpacity: 0.35 },
+                        { key: 'rt_critic', label: 'C', logoColor: '#fa320a', logoOpacity: 0.35 },
+                        { key: 'rt_audience', label: 'A', logoColor: '#fa320a', logoOpacity: 0.25 },
+                        { key: 'average', label: 'Avg', logoColor: '#64c864', logoOpacity: 0.35 },
+                      ]
+
                       return (
                         <>
-                          {ratingSources.tmdb && badgePositions.tmdb && (
-                            <g
-                              className="cursor-move"
-                              onMouseDown={(e) => handleBadgeMouseDown(e, 'tmdb')}
-                            >
-                              <rect x={(badgePositions.tmdb.x / 100) * 120} y={(badgePositions.tmdb.y / 100) * 180} width={badgeWidth} height={badgeHeight} fill="#000" fillOpacity={opacity} rx="2" />
-                              <rect x={(badgePositions.tmdb.x / 100) * 120 + badgeWidth * 0.1} y={(badgePositions.tmdb.y / 100) * 180 + badgeHeight * 0.05} width={badgeWidth * 0.8} height={logoAreaHeight * 0.85} fill="#4a9eff" fillOpacity={0.35} rx="1" className="pointer-events-none" />
-                              <text x={(badgePositions.tmdb.x / 100) * 120 + badgeWidth / 2} y={(badgePositions.tmdb.y / 100) * 180 + badgeHeight * 0.80} fontSize={fontSize} fill={badgeStyle.rating_color || '#FFD700'} textAnchor="middle" dominantBaseline="middle" fontFamily={fontFamily} fontStyle={fontStyle} fontWeight={fontWeight} className="pointer-events-none select-none">T</text>
-                            </g>
-                          )}
-
-                          {ratingSources.imdb && badgePositions.imdb && (
-                            <g
-                              className="cursor-move"
-                              onMouseDown={(e) => handleBadgeMouseDown(e, 'imdb')}
-                            >
-                              <rect x={(badgePositions.imdb.x / 100) * 120} y={(badgePositions.imdb.y / 100) * 180} width={badgeWidth} height={badgeHeight} fill="#000" fillOpacity={opacity} rx="2" />
-                              <rect x={(badgePositions.imdb.x / 100) * 120 + badgeWidth * 0.1} y={(badgePositions.imdb.y / 100) * 180 + badgeHeight * 0.05} width={badgeWidth * 0.8} height={logoAreaHeight * 0.85} fill="#f5c518" fillOpacity={0.35} rx="1" className="pointer-events-none" />
-                              <text x={(badgePositions.imdb.x / 100) * 120 + badgeWidth / 2} y={(badgePositions.imdb.y / 100) * 180 + badgeHeight * 0.80} fontSize={fontSize} fill={badgeStyle.rating_color || '#FFD700'} textAnchor="middle" dominantBaseline="middle" fontFamily={fontFamily} fontStyle={fontStyle} fontWeight={fontWeight} className="pointer-events-none select-none">I</text>
-                            </g>
-                          )}
-
-                          {ratingSources.rt_critic && badgePositions.rt_critic && (
-                            <g
-                              className="cursor-move"
-                              onMouseDown={(e) => handleBadgeMouseDown(e, 'rt_critic')}
-                            >
-                              <rect x={(badgePositions.rt_critic.x / 100) * 120} y={(badgePositions.rt_critic.y / 100) * 180} width={badgeWidth} height={badgeHeight} fill="#000" fillOpacity={opacity} rx="2" />
-                              <rect x={(badgePositions.rt_critic.x / 100) * 120 + badgeWidth * 0.1} y={(badgePositions.rt_critic.y / 100) * 180 + badgeHeight * 0.05} width={badgeWidth * 0.8} height={logoAreaHeight * 0.85} fill="#fa320a" fillOpacity={0.35} rx="1" className="pointer-events-none" />
-                              <text x={(badgePositions.rt_critic.x / 100) * 120 + badgeWidth / 2} y={(badgePositions.rt_critic.y / 100) * 180 + badgeHeight * 0.80} fontSize={fontSize} fill={badgeStyle.rating_color || '#FFD700'} textAnchor="middle" dominantBaseline="middle" fontFamily={fontFamily} fontStyle={fontStyle} fontWeight={fontWeight} className="pointer-events-none select-none">C</text>
-                            </g>
-                          )}
-
-                          {ratingSources.rt_audience && badgePositions.rt_audience && (
-                            <g
-                              className="cursor-move"
-                              onMouseDown={(e) => handleBadgeMouseDown(e, 'rt_audience')}
-                            >
-                              <rect x={(badgePositions.rt_audience.x / 100) * 120} y={(badgePositions.rt_audience.y / 100) * 180} width={badgeWidth} height={badgeHeight} fill="#000" fillOpacity={opacity} rx="2" />
-                              <rect x={(badgePositions.rt_audience.x / 100) * 120 + badgeWidth * 0.1} y={(badgePositions.rt_audience.y / 100) * 180 + badgeHeight * 0.05} width={badgeWidth * 0.8} height={logoAreaHeight * 0.85} fill="#fa320a" fillOpacity={0.25} rx="1" className="pointer-events-none" />
-                              <text x={(badgePositions.rt_audience.x / 100) * 120 + badgeWidth / 2} y={(badgePositions.rt_audience.y / 100) * 180 + badgeHeight * 0.80} fontSize={fontSize} fill={badgeStyle.rating_color || '#FFD700'} textAnchor="middle" dominantBaseline="middle" fontFamily={fontFamily} fontStyle={fontStyle} fontWeight={fontWeight} className="pointer-events-none select-none">A</text>
-                            </g>
-                          )}
+                          {BADGE_SOURCES.map(({ key, label, logoColor, logoOpacity }) => {
+                            if (!ratingSources[key] || !badgePositions[key]) return null
+                            const bx = (badgePositions[key].x / 100) * 120
+                            const by = (badgePositions[key].y / 100) * 180
+                            return (
+                              <g key={key} className="cursor-move" onMouseDown={(e) => handleBadgeMouseDown(e, key)}>
+                                <BadgeShape bx={bx} by={by} borderColor={badgeStyle.rating_color || '#FFD700'} />
+                                {!isTextOnly && !isStar && (
+                                  <rect x={bx + (badgeWidth - clampedLogoW) / 2} y={by + badgeHeight * 0.05} width={clampedLogoW} height={clampedLogoH} fill={logoColor} fillOpacity={logoOpacity} rx="1" className="pointer-events-none" />
+                                )}
+                                <text x={bx + badgeWidth / 2} y={by + badgeHeight * 0.80} fontSize={fontSize} fill={badgeStyle.rating_color || '#FFD700'} textAnchor="middle" dominantBaseline="middle" fontFamily={fontFamily} fontStyle={fontStyle} fontWeight={fontWeight} className="pointer-events-none select-none">{label}</text>
+                              </g>
+                            )
+                          })}
                         </>
                       )
                     })()}
@@ -789,7 +816,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                   <div className="text-xs text-gray-500 mt-2 space-y-1">
                     <p className="font-medium">💡 Drag badges to position</p>
                     <div className="text-gray-400 leading-relaxed">
-                      <span className="font-bold text-white">T</span>=<span className="font-bold">TMDB</span> • <span className="font-bold text-white">I</span>=<span className="font-bold">IMDb</span> • <span className="font-bold text-white">C</span>=<span className="font-bold">RT Critic</span> • <span className="font-bold text-white">A</span>=<span className="font-bold">RT Audience</span>
+                      <span className="font-bold text-white">T</span>=<span className="font-bold">TMDB</span> • <span className="font-bold text-white">I</span>=<span className="font-bold">IMDb</span> • <span className="font-bold text-white">C</span>=<span className="font-bold">RT Critic</span> • <span className="font-bold text-white">A</span>=<span className="font-bold">RT Audience</span> • <span className="font-bold text-white">Avg</span>=<span className="font-bold">Average</span>
                       {(badgeStyle.status_overlay || 'none') !== 'none' && (
                         <span className="block mt-0.5">Status label is also draggable</span>
                       )}
@@ -882,6 +909,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                         <option value="gradient">Gradient</option>
                         <option value="square">Square</option>
                         <option value="text_only">Text Only</option>
+                        <option value="star">Star</option>
                       </select>
                     </div>
 
@@ -959,7 +987,7 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                       Per-Badge Size Overrides ▸
                     </summary>
                     <div className="mt-2 space-y-2 pl-1">
-                      {['tmdb', 'imdb', 'rt_critic', 'rt_audience'].map(src => (
+                      {['tmdb', 'imdb', 'rt_critic', 'rt_audience', 'average'].map(src => (
                         <div key={src}>
                           <label className="text-[10px] text-gray-500 block">
                             {src.toUpperCase()}: {(badgeStyle.per_badge_size || {})[src] || badgeStyle.individual_badge_size || 12}%
@@ -1335,6 +1363,18 @@ function Dashboard({ onStartProcessing, onLibrarySelect }) {
                 />
                 <label htmlFor="rt-audience-checkbox" className="text-sm">
                   🍿 RT Audience (0-100%)
+                </label>
+              </div>
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={ratingSources.average || false}
+                  onChange={() => toggleRatingSource('average')}
+                  className="mr-2"
+                  id="average-checkbox"
+                />
+                <label htmlFor="average-checkbox" className="text-sm">
+                  📊 Average (0-10 scale)
                 </label>
               </div>
             </div>

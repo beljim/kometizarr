@@ -91,7 +91,29 @@ BADGE_TEMPLATES = {
         'no_background': True,
         'text_only': True,
     },
+    'star': {
+        'label': 'Star',
+        'description': 'Five-pointed star shape badge',
+        'corner_radius_pct': 0,
+        'aspect_ratio': 1.0,
+        'logo_section_pct': 0.50,
+        'gradient': False,
+        'border': False,
+        'shadow': True,
+        'star_shape': True,
+    },
 }
+
+
+def _star_polygon(cx, cy, outer_r, inner_r, points=5):
+    """Return a list of (x, y) vertices for a star polygon."""
+    import math
+    verts = []
+    for i in range(points * 2):
+        angle = math.pi / 2 + i * math.pi / points  # start from top
+        r = outer_r if i % 2 == 0 else inner_r
+        verts.append((cx + r * math.cos(angle), cy - r * math.sin(angle)))
+    return verts
 
 
 class MultiRatingBadge:
@@ -343,7 +365,14 @@ class MultiRatingBadge:
         corner_radius = int(badge_width * template.get('corner_radius_pct', 0.10))
 
         if not template.get('no_background', False):
-            if template.get('gradient', False):
+            if template.get('star_shape', False):
+                # Star-shaped background
+                cx, cy = badge_width // 2, badge_height // 2
+                outer_r = min(badge_width, badge_height) // 2
+                inner_r = int(outer_r * 0.40)
+                star_verts = _star_polygon(cx, cy, outer_r, inner_r)
+                draw.polygon(star_verts, fill=(0, 0, 0, background_opacity))
+            elif template.get('gradient', False):
                 # Gradient background: draw line by line with varying opacity
                 top_opacity = template.get('gradient_top_opacity', 200)
                 bottom_opacity = template.get('gradient_bottom_opacity', 80)
@@ -376,6 +405,8 @@ class MultiRatingBadge:
         # Text-only template: just the rating number with a colored source dot
         if template.get('text_only', False):
             font_size = int(badge_width * 0.55 * font_multiplier)
+            # Clamp to badge bounds
+            font_size = min(font_size, badge_width - 4, badge_height - 4)
             font_family = style.get('font_family', 'DejaVu Sans Bold')
             font_path = self.FONT_PATHS.get(font_family, self.FONT_PATHS['DejaVu Sans Bold'])
             try:
@@ -400,6 +431,7 @@ class MultiRatingBadge:
             SOURCE_DOT_COLORS = {
                 'tmdb': (74, 158, 255, 255), 'imdb': (245, 197, 24, 255),
                 'rt_critic': (250, 50, 10, 255), 'rt_audience': (250, 50, 10, 200),
+                'average': (100, 200, 100, 255),
             }
             dot_color = SOURCE_DOT_COLORS.get(source, rating_color)
             dot_y = int(badge_height * 0.78)
@@ -445,6 +477,8 @@ class MultiRatingBadge:
             base_scale = LOGO_BASE_SCALE.get(logo_key, 1.0)
             # Calculate logo size to fit in top section, scaled by logo_size_multiplier
             max_logo_size = int(min(badge_width - (padding * 2), logo_section_height - padding) * logo_multiplier * base_scale)
+            # Clamp to never exceed the badge bounds
+            max_logo_size = min(max_logo_size, badge_width - (padding * 2), logo_section_height - padding)
 
             # Resize logo maintaining aspect ratio
             orig_width, orig_height = logo.size
@@ -473,6 +507,8 @@ class MultiRatingBadge:
 
         # Load font - use custom font family if specified
         font_size = int(badge_width * 0.35 * font_multiplier)  # 35% of badge width
+        # Clamp font to not exceed the bottom section
+        font_size = min(font_size, number_section_height - 4, badge_width - 4)
         font_family = style.get('font_family', 'DejaVu Sans Bold')
         font_path = self.FONT_PATHS.get(font_family, self.FONT_PATHS['DejaVu Sans Bold'])
 

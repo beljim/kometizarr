@@ -1027,6 +1027,15 @@ async def preview_posters(request: PreviewRequest):
                 if request.rating_sources:
                     ratings = {k: v for k, v in ratings.items() if request.rating_sources.get(k, True)}
 
+                # Compute average rating if enabled
+                if request.rating_sources and request.rating_sources.get('average', False):
+                    real_ratings = {k: v for k, v in ratings.items() if k != 'average' and v and v > 0}
+                    if real_ratings:
+                        normalized = []
+                        for k, v in real_ratings.items():
+                            normalized.append(v / 10.0 if k in ('rt_critic', 'rt_audience') else v)
+                        ratings['average'] = round(sum(normalized) / len(normalized), 1)
+
                 selected_status = str((request.badge_style or {}).get('status_overlay', 'none')).strip().lower()
                 if not ratings or all(v == 0 for v in ratings.values()):
                     if selected_status == 'none':
@@ -1600,6 +1609,7 @@ DEFAULT_BADGE_POSITIONS = {
     "imdb":        {"x": 70, "y": 2},
     "rt_critic":   {"x": 2,  "y": 78},
     "rt_audience": {"x": 70, "y": 78},
+    "average":     {"x": 36, "y": 40},
 }
 
 DEFAULT_BADGE_STYLE = {
@@ -1615,7 +1625,7 @@ DEFAULT_BADGE_STYLE = {
 }
 
 DEFAULT_RATING_SOURCES = {
-    "tmdb": True, "imdb": True, "rt_critic": True, "rt_audience": True,
+    "tmdb": True, "imdb": True, "rt_critic": True, "rt_audience": True, "average": False,
 }
 
 
